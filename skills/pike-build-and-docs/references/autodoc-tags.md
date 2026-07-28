@@ -47,7 +47,7 @@ everything else.
 ```bash
 # 1. extract — per file, or recurse a tree
 pike -x extract_autodoc --builddir=build Doc.pike
-pike -x extract_autodoc --srcdir=. --builddir=build
+pike -x extract_autodoc --srcdir=. --builddir=/tmp/adbuild   # outside srcdir
 
 # 2. join — merge into one document
 pike -x join_autodoc build/all.xml build/
@@ -80,9 +80,14 @@ pike -x join_autodoc [--post-process] [-q|--quiet] [-v|--verbose] <dest.xml> fil
 -h, --help
 ```
 
-There is **no `--dumpfile`**. Output naming is derived: `<builddir>/<file>.xml`, plus a
-`.stamp` file. Extraction is incremental — a file is re-extracted only when its source is
-newer than the existing XML.
+There is **no `--dumpfile`**. Two further constraints, both hit in practice:
+
+- **`--builddir` does not create intermediate directories.** Passing a nested path such as
+  `Site.pmod/Server.pike` generates the XML but fails to write it. Use `--srcdir` for trees.
+- **`--builddir` must sit outside `--srcdir`**, or the walk recurses into its own output.
+
+Output naming is derived: `<builddir>/<file>.xml`, plus a `.stamp` file. Extraction is
+incremental — a file is re-extracted only when its source is newer than the existing XML.
 
 ## Extracted XML
 
@@ -116,7 +121,7 @@ machine-readable API index, useful beyond rendering HTML.
 Guard extraction in CI, since an empty result exits `0`:
 
 ```bash
-pike -x extract_autodoc --srcdir=. --builddir=build
+pike -x extract_autodoc --srcdir=. --builddir=/tmp/adbuild   # outside srcdir
 test -n "$(find build -name '*.xml')" || { echo "no autodoc extracted"; exit 1; }
 ```
 

@@ -106,11 +106,18 @@ pike -x extract_autodoc --builddir=build Doc.pike
 The flag is **`--builddir`**. To walk a whole source tree instead of naming files:
 
 ```bash
-pike -x extract_autodoc --srcdir=. --builddir=build
+pike -x extract_autodoc --srcdir=. --builddir=/tmp/adbuild   # NOT ./build — see below
 ```
 
 `--srcdir` triggers recursion and takes precedence over file arguments — do not pass both
 expecting the file list to win.
+
+Two constraints that bite on real trees:
+
+- **`--builddir` does not create intermediate directories.** A nested path such as
+  `Site.pmod/Server.pike` generates its XML but fails to write it. Use `--srcdir` instead.
+- **`--builddir` must sit outside `--srcdir`**, or the walk recurses into its own output
+  and fails.
 
 Verified output for the example above:
 
@@ -159,9 +166,10 @@ pike -e 'write("%O\n", undefinedp(master()->resolv("MyLib")));'   # 0 = installe
 ```yaml
 - name: Docs
   run: |
-    mkdir -p build
-    pike -x extract_autodoc --srcdir=. --builddir=build
-    test -n "$(find build -name '*.xml')" || { echo "no autodoc extracted"; exit 1; }
+    # builddir must be outside srcdir, or the walk recurses into its own output
+    B=$(mktemp -d)
+    pike -x extract_autodoc --srcdir=. --builddir="$B"
+    test -n "$(find "$B" -name '*.xml')" || { echo "no autodoc extracted"; exit 1; }
 ```
 
 The `test` guard matters: extraction succeeds quietly when it finds nothing to extract,
