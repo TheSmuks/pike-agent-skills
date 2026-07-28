@@ -135,6 +135,7 @@ Two passes, because they see different things:
 
 ```bash
 pike -M . tools/pike-resolve.pike --imports Foo.pike   # include imports
+pike -M . tools/pike-resolve.pike --roxen=/opt/roxen M.pike  # resolve Roxen + <module.h>
 pike -M . tools/pike-resolve.pike --static Broken.pike # target does not compile
 pike -M . tools/pike-resolve.pike --json Foo.pike      # machine-readable
 pike tools/pike-resolve.pike Standards.JSON            # a module, not a file
@@ -207,5 +208,6 @@ Never "fix" a Pike project to a single project-wide case style.
 
 ## Reference
 
-- `tools/pike-resolve.pike` — trace inherit/import chains to source files
+- `tools/pike-resolve.pike` — trace inherit/import/include chains to source files
+- `tools/pike-check.pike` — compile-check a file or a whole tree, Roxen-aware
 - `references/resolution.md` — resolution rules with verified worked examples
