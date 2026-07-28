@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-38%2F38_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-48%2F48_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -62,6 +62,38 @@ For Claude specifically, `npx skills add TheSmuks/pike-agent-skills` also works.
 These cover **workflow**. For Pike syntax, types, and standard-library semantics, pair
 them with a language reference skill — that ground is deliberately not repeated here.
 
+## Tool: does this code compile?
+
+```bash
+pike tools/pike-check.pike src/            # whole tree, recursively
+pike tools/pike-check.pike --roxen=/opt/roxen mymodule.pike
+```
+
+[`tools/pike-check.pike`](tools/pike-check.pike) compiles Pike code — resolving inherits,
+imports and includes — and reports every error with `file:line`. Point it at a directory
+and it walks the tree.
+
+**Roxen is handled honestly.** Roxen's runtime is *bootstrapped*, not importable:
+`roxenloader` installs ~145 constants and swaps in `roxen_master.pike` before `Roxen.pmod`
+or `RXML.pmod` will compile. Stock Pike cannot resolve `Roxen.*` on its own.
+
+With `--roxen=<dir>` pointing at a real install, compilation happens **inside** it, via
+Roxen's own `./start --program` — its modules, its bundled Pike, nothing stubbed. Without
+one, Roxen references are reported as **unverified warnings** and never silently accepted:
+
+```
+!! handler.pike: 1 Roxen reference could NOT be verified: Roxen
+     handler.pike:3: Undefined identifier Roxen.
+   No Roxen install found. Pass --roxen=<dir>, or set ROXEN_DIR.
+   These are NOT confirmed correct — this check was incomplete.
+
+INCOMPLETE: your code compiled, but 1 Roxen reference went unverified.
+```
+
+Exit status distinguishes the three outcomes: `0` clean, `1` real errors in your code,
+`2` compiled but Roxen went unchecked. A pass is never claimed for code that wasn't
+actually checked.
+
 ## Tool: trace a chain to its sources
 
 ```bash
@@ -90,6 +122,10 @@ target and walks `Program.inherit_tree()` — authoritative, but blind to `impor
 leaves no runtime trace. The **static** pass tokenises with `Parser.Pike.split()` and
 resolves each name as written, so it sees imports *and* still works on code that does not
 compile.
+
+It traces `#include` too, and `--roxen=<dir>` resolves `Roxen.*`, `RXML.*` and
+`<module.h>` against a Roxen tree — resolution is a file lookup, so that works without
+booting the runtime.
 
 Installed modules are marked and not descended into (one stdlib import otherwise pulls in
 the whole runtime's tree). Unresolved references exit non-zero — usually a missing `-M`
@@ -126,7 +162,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 38   failed: 0
+passed: 48   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are

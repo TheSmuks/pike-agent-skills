@@ -166,6 +166,13 @@ else
   ok "unresolved reference exits non-zero"
 fi
 
+printf '#include "hdr.h"\ninherit "Base";\n' > "$TMP/res/Inc.pike"
+echo 'int z;' > "$TMP/res/hdr.h"
+INC=$(cd "$TMP/res" && pike -M . "$R" --static Inc.pike 2>&1)
+case "$INC" in *'include "hdr.h" -> hdr.h'*)
+  ok "traces #include to its file" ;; *)
+  bad "traces #include to its file" ;; esac
+
 if ( cd "$TMP/res" && pike -M . "$R" --json Leaf.pike ) 2>/dev/null \
      | pike -e 'string s=Stdio.stdin->read(); Standards.JSON.decode(s); write("ok\n");' \
      2>/dev/null | grep -q ok; then
@@ -173,6 +180,57 @@ if ( cd "$TMP/res" && pike -M . "$R" --json Leaf.pike ) 2>/dev/null \
 else
   bad "--json emits valid JSON"
 fi
+echo
+
+# ------------------------------------------------------------------- check tool
+echo "tools/pike-check"
+
+CHK="$HERE_TOOLS/pike-check.pike"
+printf 'int main(){ write("hi\\n"); return 0; }\n'      > "$TMP/res/Good.pike"
+printf 'int main(){ nope_not_here(); return 0; }\n'      > "$TMP/res/Bad.pike"
+printf 'int main(){ write(Roxen.html_encode_string("x")); return 0; }\n' > "$TMP/res/Rox.pike"
+
+if ( cd "$TMP/res" && pike "$CHK" Good.pike ) >/dev/null 2>&1; then
+  ok "clean file compiles and exits 0"
+else
+  bad "clean file compiles and exits 0"
+fi
+
+OUT=$(cd "$TMP/res" && pike "$CHK" Bad.pike 2>&1); RC=$?
+case "$OUT" in *"Undefined identifier nope_not_here"*)
+  ok "reports the real error with file:line" ;; *)
+  bad "reports the real error" "$(printf '%s' "$OUT" | head -1)" ;; esac
+[ "$RC" -eq 1 ] && ok "real errors exit 1" || bad "real errors exit 1" "got $RC"
+
+# The important behaviour: unresolvable Roxen must WARN, never pass silently.
+OUT=$(cd "$TMP/res" && env -u ROXEN_DIR pike "$CHK" Rox.pike 2>&1); RC=$?
+case "$OUT" in *"could NOT be verified"*)
+  ok "unresolvable Roxen is reported, not ignored" ;; *)
+  bad "unresolvable Roxen is reported" "$(printf '%s' "$OUT" | head -1)" ;; esac
+case "$OUT" in *"INCOMPLETE"*)
+  ok "does not claim success when Roxen went unchecked" ;; *)
+  bad "does not claim success when Roxen went unchecked" ;; esac
+[ "$RC" -eq 2 ] && ok "unverified Roxen exits 2 (distinct from real errors)" \
+                || bad "unverified Roxen exits 2" "got $RC"
+
+# directory mode: walk a tree instead of naming each file
+mkdir -p "$TMP/tree/sub"
+printf 'int main(){ return 0; }\n'        > "$TMP/tree/A.pike"
+printf 'string f(){ return "x"; }\n'      > "$TMP/tree/sub/B.pmod"
+printf 'int g(){ return 1; }\n'           > "$TMP/tree/sub/C.pike"
+DOUT=$(pike "$CHK" "$TMP/tree" 2>&1); DRC=$?
+case "$DOUT" in *"3 Pike files"*)
+  ok "directory mode finds files recursively" ;; *)
+  bad "directory mode finds files recursively" "$(printf '%s' "$DOUT" | head -1)" ;; esac
+[ "$DRC" -eq 0 ] && ok "clean directory exits 0" || bad "clean directory exits 0" "got $DRC"
+
+printf 'int main(){ broken_here(); }\n' > "$TMP/tree/sub/D.pike"
+if pike "$CHK" "$TMP/tree" >/dev/null 2>&1; then
+  bad "directory with a broken file exits non-zero" "exited 0"
+else
+  ok "directory with a broken file exits non-zero"
+fi
+rm -f "$TMP/tree/sub/D.pike"
 echo
 
 # ------------------------------------------------------------ runtime discovery

@@ -29,8 +29,26 @@ int max_depth = 10;
 int want_json = 0;
 int follow_imports = 0;
 int static_only = 0;
+string roxen_dir;
 
 mapping(string:int) seen = ([]);
+array(string) include_roots = ({});
+
+//! Resolve an #include. Angle form searches the include path; quote form is
+//! relative to the including file first.
+string resolve_include(string ref, int angled, string from_file)
+{
+  if (!angled) {
+    string dir = dirname(from_file); if (dir == "") dir = ".";
+    string cand = combine_path(dir, ref);
+    if (Stdio.is_file(cand)) return cand;
+  }
+  foreach (include_roots + master()->pike_include_path, string root) {
+    string cand = combine_path(root, ref);
+    if (Stdio.is_file(cand)) return cand;
+  }
+  return 0;
+}
 int descend_system = 0;
 
 //! Root of the Pike installation, derived from master.pike's own location.
@@ -169,6 +187,21 @@ array(array) extract_refs(string src)
       out += ({ ({ kind, parts * "", 0 }) });
     }
   }
+
+  // #include lines are preprocessor directives, so Parser.Pike hands them back
+  // as single tokens rather than as inherit-like statements.
+  foreach (src / "\n", string line) {
+    string t = String.trim_all_whites(line);
+    if (!has_prefix(t, "#include")) continue;
+    string rest = String.trim_all_whites(t[8..]);
+    if (has_prefix(rest, "<")) {
+      int e = search(rest, ">");
+      if (e > 0) out += ({ ({ "include", rest[1..e-1], 2 }) });
+    } else if (has_prefix(rest, "\"")) {
+      int e = search(rest, "\"", 1);
+      if (e > 0) out += ({ ({ "include", rest[1..e-1], 3 }) });
+    }
+  }
   return out;
 }
 
@@ -200,19 +233,25 @@ mapping walk_static(string file, int depth)
     [string kind, string name, int is_string] = ref;
     if (kind == "import" && !follow_imports && depth > 0) continue;
 
-    string target = is_string ? resolve_string_ref(name, file)
-                              : resolve_dotted(name, file);
+    string target;
+    if (kind == "include")
+      target = resolve_include(name, is_string == 2, file);
+    else
+      target = is_string ? resolve_string_ref(name, file)
+                         : resolve_dotted(name, file);
 
     // A bare name that resolves to nothing is very often a class defined in
     // this same file (Pike allows `inherit LocalClass;`). Say so rather than
     // reporting a spurious unresolved reference.
     int local_class = 0;
-    if (!target && !is_string && !has_value(name, ".") &&
+    if (!target && kind != "include" && !is_string && !has_value(name, ".") &&
         has_value(src, "class " + name))
       local_class = 1;
     mapping entry = ([
       "kind": kind,
-      "name": is_string ? "\"" + name + "\"" : name,
+      "name": (kind == "include")
+                ? (is_string == 2 ? "<" + name + ">" : "\"" + name + "\"")
+                : (is_string ? "\"" + name + "\"" : name),
       "resolved": target ? tidy(target) : 0,
     ]);
     if (local_class) entry->local_class = 1;
@@ -220,7 +259,7 @@ mapping walk_static(string file, int depth)
 
     // Do not descend into installed modules unless asked: a single stdlib
     // import otherwise drags in the whole runtime's inherit tree.
-    int recurse = ((kind == "inherit") || follow_imports) &&
+    int recurse = ((kind == "inherit") || follow_imports) && (kind != "include") &&
                   (descend_system || !is_system(target));
     if (target && recurse && !seen[target]) {
       seen[target] = 1;
@@ -240,7 +279,7 @@ void print_static(mapping node, string indent, int is_root)
 
   if (node->note) write("%s  (%s)\n", indent, node->note);
   foreach (node->refs, mapping e) {
-    string mark = e->kind == "import" ? "import" : "inherit";
+    string mark = e->kind;
     string note = "";
     if (e->repeat)      note = "  (already shown)";
     else if (e->system) note = "  [installed module]";
@@ -273,6 +312,7 @@ int main(int argc, array(string) argv)
     else if (a == "--imports") follow_imports = 1;
     else if (a == "--static") static_only = 1;
     else if (a == "--system") descend_system = 1;
+    else if (has_prefix(a, "--roxen=")) roxen_dir = a[8..];
     else if (has_prefix(a, "--depth=")) max_depth = (int)a[8..];
     else if (a == "-h" || a == "--help") {
       write(#"pike-resolve — trace Pike inherit/import chains to source files
@@ -284,6 +324,7 @@ Options:
   --static      skip the runtime pass (use when the target will not compile)
   --imports     follow imports transitively as well as inherits
   --system      descend into installed modules too (noisy; off by default)
+  --roxen=<dir> resolve Roxen.* / RXML.* and <module.h> against a Roxen tree
   --depth=N     limit recursion depth (default 10)
   --json        emit JSON
   -h, --help    this text
@@ -303,6 +344,22 @@ The static pass sees both and works on code that does not compile.
 
   string mp = Program.defined(object_program(master()));
   if (mp) install_root = dirname(dirname(strip_line(mp)));
+
+  // Roxen keeps its modules and headers outside the Pike module path. Adding
+  // them makes Roxen.*, RXML.* and <module.h> resolvable — resolution is a file
+  // lookup, so this works without booting the Roxen runtime.
+  if (roxen_dir) {
+    string base = Stdio.is_dir(combine_path(roxen_dir, "server"))
+                    ? combine_path(roxen_dir, "server") : roxen_dir;
+    foreach (({ "etc/modules" }), string d) {
+      string full = combine_path(base, d);
+      if (Stdio.is_dir(full)) master()->add_module_path(full);
+    }
+    foreach (({ "etc/include" }), string d) {
+      string full = combine_path(base, d);
+      if (Stdio.is_dir(full)) { master()->add_include_path(full); include_roots += ({ full }); }
+    }
+  }
 
   string target = rest[0];
   string file = Stdio.is_file(target) ? target : resolve_dotted(target);
