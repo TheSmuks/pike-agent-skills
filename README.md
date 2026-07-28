@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-31%2F31_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-32%2F32_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -58,6 +58,7 @@ For Claude specifically, `npx skills add TheSmuks/pike-agent-skills` also works.
 | [`pike-testing`](skills/pike-testing/) | `Tools.Testsuite`, `testsuite.in` and m4, `pike -x test_pike`, two m4-free paths, exit codes |
 | [`pike-runtime-discovery`](skills/pike-runtime-discovery/) | `pike -e` probes, `hilfe`, `indices`/`_typeof`/`resolv`/`Program.defined`, `describe_backtrace` |
 | [`pike-build-and-docs`](skills/pike-build-and-docs/) | `pike -x module`, `precompile` for `.cmod`, the autodoc pipeline |
+| [`pike-roxen-modules`](skills/pike-roxen-modules/) | Recognising Roxen modules, the `module_type` taxonomy, `defvar`, callbacks, tracing which module handles a file |
 
 These cover **workflow**. For Pike syntax, types, and standard-library semantics, pair
 them with a language reference skill — that ground is deliberately not repeated here.
@@ -93,7 +94,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 31   failed: 0
+passed: 32   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are

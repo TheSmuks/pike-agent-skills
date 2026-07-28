@@ -59,8 +59,19 @@ test_false(stringp(5))
 test_any([[ int x = 3; return x*2; ]], 6)
 EOF
 
-MKTS="$(dirname "$(readlink -f "$(command -v pike)")")/../include/pike/mktestsuite"
-if [ -x "$MKTS" ]; then
+# mktestsuite ships inside the Pike installation, but distributions disagree on
+# where. Source installs put it at <prefix>/include/pike/; Debian/Ubuntu use
+# /usr/include/pike<version>/pike/. Check both rather than assuming one.
+MKTS=""
+for c in \
+  "$(dirname "$(readlink -f "$(command -v pike)")")/../include/pike/mktestsuite" \
+  /usr/include/pike*/pike/mktestsuite \
+  /usr/local/include/pike*/pike/mktestsuite
+do
+  [ -f "$c" ] && { MKTS=$c; break; }
+done
+
+if [ -n "$MKTS" ] && [ -x "$MKTS" ]; then
   ok "mktestsuite present at <prefix>/include/pike/mktestsuite"
   if "$MKTS" "$TMP/testsuite.in" > "$TMP/testsuite" 2>/dev/null; then
     check "all 5 macro forms expand and run" "Total tests: 5" \
@@ -190,7 +201,7 @@ if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instruction
   fi
 fi
 
-for s in pike-module-layout pike-testing pike-runtime-discovery pike-build-and-docs; do
+for s in pike-module-layout pike-testing pike-runtime-discovery pike-build-and-docs pike-roxen-modules; do
   if [ -f "$HERE/skills/$s/SKILL.md" ]; then
     if head -5 "$HERE/skills/$s/SKILL.md" | grep -q "name: $s"; then
       ok "skills/$s frontmatter name matches its directory"
