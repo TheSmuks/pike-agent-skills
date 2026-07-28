@@ -61,23 +61,15 @@ pike -e 'write("%O\n", Program.defined(Stdio.File));'                    # file:
 `//!` autodoc directly above the declaration, with no blank line between. Tags:
 `@param`, `@returns`, `@throws`, `@seealso`, `@example`, `@[Symbol]` for cross-references.
 
-## Roxen codebases
-
-- Roxen sources are **ISO-8859-1**. `grep` and `ripgrep` read them fine; preserve the
-  encoding when editing rather than rewriting files as UTF-8.
-- Identify a Roxen module by `constant module_type = MODULE_…;` (134/170 files), not by
-  filename. The inherit form is `inherit "module";` — **not** `inherit "module.pike"`,
-  which appears in 1 of 170 files.
-- `module_type` is a **bitfield** — a module can be `MODULE_LOCATION | MODULE_TAG`. Read
-  every bit before deciding what a module does.
-- RXML tag classes **must be named `Tag*`**. `query_tag_set()` finds them with
-  `glob("Tag*", …)`; a class named `GreetTag` is silently skipped and the tag simply never
-  exists. Register non-conforming classes with an explicit `RXML.TagSet(...)`.
-- `find_file(path, id)` returns `0` for "not mine", otherwise a response mapping from
-  `Roxen.http_string_answer()` / `http_low_answer()` / `http_status()` / `http_redirect()`.
-
 ## Build
 
 Pure Pike needs no build step — files compile on load. Only `.cmod` C sources require
 one: `pike -x precompile` produces `.c`, then a **C compiler, `make`, and autotools**
 produce the `.so`. That second half is not Pike tooling.
+
+## Roxen
+
+Roxen WebServer modules are Pike programs, but Roxen has its own module system, RXML tag
+rules, and request lifecycle. Those live in
+[roxen-agent-skills](https://github.com/TheSmuks/roxen-agent-skills) — install it alongside
+this one when working in a Roxen codebase.
