@@ -2,11 +2,12 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/commands-26%2F26_verified-brightgreen.svg)](verify.sh)
-[![Copilot](https://img.shields.io/badge/GitHub_Copilot-supported-8957e5.svg)](https://github.com/features/copilot)
+[![Verified](https://img.shields.io/badge/checks-31%2F31_passing-brightgreen.svg)](verify.sh)
+[![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
-testing, runtime discovery, and builds. Works with GitHub Copilot and Claude.
+testing, runtime discovery, and builds. Tool-agnostic: GitHub Copilot, Codex, Claude, and
+anything that reads `AGENTS.md` or `SKILL.md`.
 
 **Stock Pike only.** Nothing here needs a third-party package, formatter, or test
 framework. Every command was executed against Pike 8.0.1116 before being written down,
@@ -14,29 +15,40 @@ and `./verify.sh` re-runs all of them.
 
 ## Install
 
-### GitHub Copilot
+Everything here is plain markdown — no runtime, no build, no lock-in. The installer just
+copies files where your agent looks for them.
 
 ```bash
 git clone https://github.com/TheSmuks/pike-agent-skills
-cp -r pike-agent-skills/skills/* .github/skills/
-cp pike-agent-skills/.github/instructions/pike.instructions.md .github/instructions/
+cd your-project
+../pike-agent-skills/install.sh          # auto-detects what you use
 ```
 
-The instructions file applies automatically when Copilot touches `.pike`, `.pmod`,
-`.cmod`, or `testsuite` files — no invocation needed. The skills are available on demand.
+Or pick a target explicitly:
 
-### Claude
+| Command | Installs to | For |
+|---------|-------------|-----|
+| `install.sh claude` | `~/.claude/skills/` | Claude, all projects |
+| `install.sh claude-project` | `./.claude/skills/` + `AGENTS.md` | Claude, this project |
+| `install.sh copilot` | `./.github/skills/` + `./.github/instructions/` | GitHub Copilot |
+| `install.sh codex` | `./.agents/skills/` + `AGENTS.md` | Codex |
+| `install.sh agents` | `AGENTS.md` only | Cursor, Zed, Amp, Jules, anything AGENTS.md-aware |
+| `install.sh /path/to/dir` | that directory | Anything else |
 
-```bash
-npx skills add TheSmuks/pike-agent-skills
-```
+Re-running is safe — `AGENTS.md` is appended to once and skipped thereafter.
 
-Or manually, for all projects:
+### What each piece is for
 
-```bash
-git clone https://github.com/TheSmuks/pike-agent-skills
-cp -r pike-agent-skills/skills/* ~/.claude/skills/
-```
+| File | Role |
+|------|------|
+| `skills/*/SKILL.md` | On-demand skills. Portable — Claude, Copilot, and Codex all use `SKILL.md` in a named directory |
+| `AGENTS.md` | Always-on rules digest in the cross-tool `AGENTS.md` convention |
+| `.github/instructions/pike.instructions.md` | The same rules with Copilot `applyTo` globs, so they auto-apply to `.pike`/`.pmod`/`.cmod`/`testsuite` files |
+
+`AGENTS.md` and the Copilot instructions body are the same text; `verify.sh` fails if they
+ever drift apart.
+
+For Claude specifically, `npx skills add TheSmuks/pike-agent-skills` also works.
 
 ## Skills
 
@@ -81,7 +93,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 26   failed: 0
+passed: 31   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are

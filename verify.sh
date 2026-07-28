@@ -174,6 +174,32 @@ check "module installer is available" "Pike module installer" \
 check "monger (stock package manager) is available" "Monger" pike -x monger --help
 echo
 
+# ------------------------------------------------------------------ repo health
+echo "repo consistency"
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instructions.md" ]; then
+  if sed '1,4d' "$HERE/.github/instructions/pike.instructions.md" | \
+       diff -q - "$HERE/AGENTS.md" >/dev/null 2>&1; then
+    ok "AGENTS.md and the Copilot instructions body are in sync"
+  else
+    bad "AGENTS.md and .github/instructions/pike.instructions.md have drifted"
+  fi
+fi
+
+for s in pike-module-layout pike-testing pike-runtime-discovery pike-build-and-docs; do
+  if [ -f "$HERE/skills/$s/SKILL.md" ]; then
+    if head -5 "$HERE/skills/$s/SKILL.md" | grep -q "name: $s"; then
+      ok "skills/$s frontmatter name matches its directory"
+    else
+      bad "skills/$s frontmatter name does not match its directory"
+    fi
+  else
+    bad "skills/$s/SKILL.md missing"
+  fi
+done
+echo
+
 echo "-----------------------------------------"
 printf 'passed: %d   failed: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

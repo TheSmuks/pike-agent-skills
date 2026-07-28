@@ -4,8 +4,10 @@ applyTo: "**/*.pike,**/*.pmod,**/*.cmod,**/testsuite,**/testsuite.in"
 
 # Pike Working Rules
 
-Automatically applied by GitHub Copilot when editing Pike files. These are the
-high-frequency correctness rules; the full skills live in `skills/`.
+High-frequency correctness rules for working in Pike, in a format any coding agent can
+read. The full skills live in `skills/`.
+
+Verified against Pike 8.0.1116; run `./verify.sh` to re-check them against your install.
 
 ## Module layout
 
