@@ -274,6 +274,26 @@ case "$NOPROMPT" in *"no Roxen install was found"*)
   bad "no prompt when stdin is not a terminal" "it prompted" ;; *)
   ok "no prompt when stdin is not a terminal" ;; esac
 
+# An undefined type in a signature cascades into structural errors. Verified
+# against Roxen: one undefined Gz at Roxen.pmod:1064 produced dozens. Report the
+# root, hide the consequences unless asked.
+printf 'void f( UnknownType x ) { if (!x) return; }\nint main(){ return 0; }\n' \
+  > "$TMP/res/Casc.pike"
+CASC=$(cd "$TMP/res" && pike "$CHK" --no-color Casc.pike 2>&1)
+case "$CASC" in *"Undefined identifier UnknownType"*)
+  ok "reports the root undefined identifier" ;; *)
+  bad "reports the root undefined identifier" ;; esac
+case "$CASC" in *"follow-on error"*)
+  ok "hides follow-on errors behind a count" ;; *)
+  bad "hides follow-on errors" ;; esac
+case "$CASC" in *"Must return a value"*)
+  bad "cascade errors are hidden by default" "they were shown" ;; *)
+  ok "cascade errors are hidden by default" ;; esac
+ALL=$(cd "$TMP/res" && pike "$CHK" --no-color --all Casc.pike 2>&1)
+case "$ALL" in *"Must return a value"*)
+  ok "--all shows the follow-on errors" ;; *)
+  bad "--all shows the follow-on errors" ;; esac
+
 # warnings must not fail an otherwise-correct file
 printf 'int main(){ mixed x = 1; string s = x; return 0; }\n' > "$TMP/res/Warn.pike"
 WOUT=$(cd "$TMP/res" && pike "$CHK" Warn.pike 2>&1); WRC=$?

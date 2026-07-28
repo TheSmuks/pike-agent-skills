@@ -9,9 +9,18 @@
 //! `Roxen.pmod` or `RXML.pmod` will compile. So Roxen code cannot be checked by
 //! stock Pike alone.
 //!
-//! When a Roxen install is available this delegates to it — `./start --program`
-//! runs a program inside the real, booted Roxen environment, using Roxen's own
-//! modules and its own bundled Pike. Nothing is stubbed.
+//! When a Roxen install is available this delegates to it via `./start
+//! --program`, which runs the program with **Roxen's Pike, module path and
+//! include path**. Nothing is stubbed.
+//!
+//! Be precise about what that buys, because it is easy to overstate: `--program`
+//! *replaces* `base_server/roxenloader.pike` rather than running alongside it,
+//! so roxenloader never executes and the Roxen runtime — the master swap and
+//! the ~145 constants it installs — is never set up. Delegation therefore
+//! resolves `#include <module.h>` and locates `Roxen.pmod`, but code that calls
+//! `Roxen.*` still will not compile, because `Roxen.pmod` itself needs that
+//! runtime. Those references are reported as unverified, as they would be
+//! without an install.
 //!
 //! When no install is configured, Roxen references are reported as
 //! **unverified warnings**, never silently ignored, and the exit status says the
@@ -40,6 +49,34 @@ constant description = "Check that Pike code compiles, including Roxen code.";
 int quiet = 0;
 int strict = 0;
 int use_color = -1;   // -1 = auto
+int show_all = 0;
+
+//! Compiler messages that are almost always *consequences* of an earlier
+//! undefined identifier rather than independent problems.
+//!
+//! Verified against Roxen: one undefined type in a signature —
+//!   void f(UnknownType x) { if (!x) return; }
+//! produces "Illegal program identifier", then "Must return a value for a
+//! non-void function / Expected: mixed / Got: void", because losing the type
+//! also loses the void return. Roxen.pmod turns a single undefined `Gz` at
+//! line 1064 into dozens of these. Reporting them all buries the one line
+//! worth reading.
+array(string) cascade_markers = ({
+  "Illegal program identifier",
+  "Must return a value for a non-void function",
+  "Expected: mixed.",
+  "Got     : void.",
+  "Expected constant expression",
+  "Indexing on illegal type",
+  "Got     : zero.",
+  "Error in constant definition",
+});
+
+int is_cascade(string line)
+{
+  foreach (cascade_markers, string m) if (has_value(line, m)) return 1;
+  return 0;
+}
 
 //! Colour only when writing to a terminal, and never when NO_COLOR is set
 //! (https://no-color.org). --color / --no-color override the guess.
@@ -336,9 +373,9 @@ string compile_here(string file)
   return out;
 }
 
-//! Compile inside a real Roxen install, via its own ./start --program.
-//! This is the only way to check Roxen code without stubbing: the environment
-//! is booted exactly as the server boots it.
+//! Compile via the install's own ./start --program, which supplies Roxen's
+//! Pike, module path and include path. Note this does NOT boot the Roxen
+//! runtime: --program replaces roxenloader rather than running after it.
 string compile_in_roxen(string file, string rdir)
 {
   string server = Stdio.is_file(combine_path(rdir, "server/start"))
@@ -385,6 +422,7 @@ int main(int argc, array(string) argv)
     else if (a == "--quiet") quiet = 1;
     else if (has_prefix(a, "--exclude=")) exclude_globs += ({ a[10..] });
     else if (a == "--strict") strict = 1;
+    else if (a == "--all") show_all = 1;
     else if (a == "--color") use_color = 1;
     else if (a == "--no-color") use_color = 0;
     else if (a == "-h" || a == "--help") {
@@ -400,6 +438,7 @@ Options:
   --quiet         only report problems
   --exclude=<glob> skip matching paths (repeatable)
   --strict        treat compiler warnings as errors
+  --all           show follow-on errors too (default: root causes only)
   --color / --no-color   force colour on or off (default: auto, honours NO_COLOR)
 
 Diagnostics are printed as absolute `file:line:col: message`, which most
@@ -582,7 +621,31 @@ never silently accepted.
       real_lines = filtered;
     }
 
-    foreach (real_lines, string l) write("%s\n", reformat(l));
+    // Lead with root causes. An undefined identifier in a signature cascades
+    // into structural errors that are noise until the root is fixed.
+    array(string) roots = ({}), followon = ({});
+    int seen_undef = 0;
+    foreach (real_lines, string l) {
+      if (has_value(l, "Undefined identifier")) { seen_undef = 1; roots += ({ l }); }
+      else if (seen_undef && is_cascade(l)) followon += ({ l });
+      else roots += ({ l });
+    }
+
+    // The same undefined identifier is reported once per use; collapse repeats.
+    array(string) to_show = ({});
+    multiset(string) already = (<>);
+    foreach (show_all ? real_lines : roots, string l) {
+      if (!show_all && already[l]) continue;
+      already[l] = 1;
+      to_show += ({ l });
+    }
+    foreach (to_show, string l) write("%s\n", reformat(l));
+    if (!show_all && sizeof(followon))
+      write("  %s\n", c(C_DIM, sprintf(
+        "+%d follow-on error%s hidden — fix the undefined identifier%s above first (--all to show)",
+        sizeof(followon), sizeof(followon) == 1 ? "" : "s",
+        sizeof(roots) == 1 ? "" : "s")));
+
     errors += sizeof(real_lines);
     if (sizeof(real_lines)) bad_files++;
 

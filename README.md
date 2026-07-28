@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-57%2F57_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-61%2F61_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -82,9 +82,17 @@ On the first run over Roxen code it looks for an install (common locations, `ROX
 answer in `$XDG_CONFIG_HOME/pike-agent-skills/roxen-path`. Declining is remembered too, so
 it never nags. In CI, where stdin is not a terminal, it never prompts.
 
-With `--roxen=<dir>` pointing at a real install, compilation happens **inside** it, via
-Roxen's own `./start --program` — its modules, its bundled Pike, nothing stubbed. Without
-one, Roxen references are reported as **unverified warnings** and never silently accepted:
+With `--roxen=<dir>` pointing at a real install, compilation is delegated to its own
+`./start --program`, which supplies Roxen's Pike, module path and include path — nothing
+is stubbed. That resolves `#include <module.h>` and locates `Roxen.pmod`.
+
+It does **not** boot the Roxen runtime: `--program` replaces `roxenloader.pike` rather
+than running after it, so the master swap and the constants it installs never happen.
+Code calling `Roxen.*` therefore still reports as unverified — `Roxen.pmod` itself needs
+that runtime. Verified in a container with a real Roxen 6.3 and Pike 8.0.1116.
+
+Roxen references that cannot be checked are reported as **unverified warnings** and never
+silently accepted:
 
 ```
 !! handler.pike: 1 Roxen reference could NOT be verified: Roxen
@@ -93,6 +101,17 @@ one, Roxen references are reported as **unverified warnings** and never silently
    These are NOT confirmed correct — this check was incomplete.
 
 INCOMPLETE: your code compiled, but 1 Roxen reference went unverified.
+```
+
+**Root causes first.** An undefined type in a signature cascades: Pike loses the return
+type too, so one bad identifier yields "Illegal program identifier", "Must return a value
+for a non-void function", "Expected: mixed", and so on. Verified in the lab — a single
+undefined `Gz` at `Roxen.pmod:1064` produced dozens of these. Only the root is shown by
+default, with the rest behind a count (`--all` shows everything):
+
+```
+handler.pike:1:1: error: Undefined identifier UnknownType.
+  +5 follow-on errors hidden — fix the undefined identifier above first (--all to show)
 ```
 
 Diagnostics are absolute `file:line:col: message`, which editors and terminals turn into
@@ -177,7 +196,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 57   failed: 0
+passed: 61   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are
