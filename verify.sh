@@ -213,6 +213,24 @@ case "$OUT" in *"INCOMPLETE"*)
 [ "$RC" -eq 2 ] && ok "unverified Roxen exits 2 (distinct from real errors)" \
                 || bad "unverified Roxen exits 2" "got $RC"
 
+# diagnostics must be clickable: absolute path + line:col
+COUT=$(cd "$TMP/res" && pike "$CHK" --no-color Bad.pike 2>&1)
+case "$COUT" in "$TMP"/res/Bad.pike:*:*:*error:*)
+  ok "diagnostics are clickable absolute file:line:col" ;; *)
+  bad "diagnostics are clickable" "$(printf '%s' "$COUT" | head -1)" ;; esac
+ESC=$(printf '\033')
+case "$COUT" in *"$ESC"*) bad "--no-color emits no escape codes" ;;
+                *) ok "--no-color emits no escape codes" ;; esac
+COL=$(cd "$TMP/res" && pike "$CHK" --color Bad.pike 2>&1)
+case "$COL" in *"$ESC"*) ok "--color emits colour" ;;
+               *) bad "--color emits colour" ;; esac
+
+# warnings must not fail an otherwise-correct file
+printf 'int main(){ mixed x = 1; string s = x; return 0; }\n' > "$TMP/res/Warn.pike"
+WOUT=$(cd "$TMP/res" && pike "$CHK" Warn.pike 2>&1); WRC=$?
+[ "$WRC" -eq 0 ] && ok "compiler warnings do not fail a file" \
+                 || bad "compiler warnings do not fail a file" "exit $WRC"
+
 # directory mode: walk a tree instead of naming each file
 mkdir -p "$TMP/tree/sub"
 printf 'int main(){ return 0; }\n'        > "$TMP/tree/A.pike"

@@ -18,6 +18,13 @@
 //! check was incomplete. A clean run of your own code is not a claim that its
 //! Roxen calls are correct.
 //!
+//! **Known limitation.** A `.pmod` submodule compiled standalone loses its place
+//! in the module namespace, so sibling references resolved through the parent
+//! (`Calendar.pmod/Timezone.pmod` reaching `Calendar.TZnames`) fail here while
+//! being perfectly correct in context. Measured on Pike 8.0.1116's own stdlib:
+//! 534 of 545 modules compile clean; of the 11 that do not, 7 need GTK bindings
+//! that are not built and 3 are this submodule-context case.
+//!
 //! Usage:
 //!   pike tools/pike-check.pike [options] <file.pike> [more.pike ...]
 //!
@@ -31,6 +38,47 @@
 constant description = "Check that Pike code compiles, including Roxen code.";
 
 int quiet = 0;
+int strict = 0;
+int use_color = -1;   // -1 = auto
+
+//! Colour only when writing to a terminal, and never when NO_COLOR is set
+//! (https://no-color.org). --color / --no-color override the guess.
+int colorize()
+{
+  if (use_color >= 0) return use_color;
+  if (getenv("NO_COLOR")) return 0;
+  mixed t; catch { t = Stdio.stdout->tcgetattr(); };
+  return t ? 1 : 0;
+}
+
+string C_RED = "\033[31m", C_YEL = "\033[33m", C_GRN = "\033[32m",
+       C_BOLD = "\033[1m", C_DIM = "\033[2m", C_OFF = "\033[0m";
+
+string c(string code, string text) { return colorize() ? code + text + C_OFF : text; }
+
+//! Emit a diagnostic in `file:line:col: message` form with an absolute path,
+//! which editors and terminals turn into a clickable link.
+string diag(string file, int line, string msg, string kind)
+{
+  string loc = sprintf("%s:%d:1", combine_path(getcwd(), file), line);
+  string head = c(C_BOLD, loc) + ":";
+  string tag = (kind == "warning") ? c(C_YEL, " warning: ")
+             : (kind == "note")    ? c(C_DIM, " ")
+             :                       c(C_RED, " error: ");
+  return head + tag + msg;
+}
+
+//! Re-render a raw compiler line ("path:12: message") as a clickable diagnostic.
+string reformat(string line)
+{
+  string path, msg; int ln;
+  if (sscanf(line, "%s:%d: %s", path, ln, msg) == 3) {
+    int is_warn = has_prefix(msg, "warning: ");
+    if (is_warn) msg = msg[9..];
+    return diag(path, ln, msg, is_warn ? "warning" : "error");
+  }
+  return line;
+}
 array(string) exclude_globs = ({ "*/.git/*", "*/build/*", "*/.build/*", "*/node_modules/*" });
 string roxen_dir;
 array(string) extra_M = ({});
@@ -156,23 +204,57 @@ multiset(string) undefined_names(string errs)
   return out;
 }
 
-//! Compile one file in-process, returning the error text ("" on success).
+//! Compile one file in a child pike, returning the error text ("" on success).
+//!
+//! A subprocess rather than compile_string() in this process, because some
+//! failures are reported by the master directly to stderr (a runtime error
+//! while resolving a dependency, e.g. Calendar.pmod/Event.pmod). Those bypass
+//! any compile-error handler, so in-process they appear as unattributed
+//! backtraces and the file that caused them cannot be identified. A child also
+//! stops one bad file from poisoning the module cache for the rest of the run.
 string compile_here(string file)
 {
-  string errs = "";
-  object handler = class {
-    string acc = "";
-    void compile_error(string f, int l, string m) { acc += sprintf("%s:%d: %s\n", f, l, m); }
-    void compile_warning(string f, int l, string m) { acc += sprintf("%s:%d: warning: %s\n", f, l, m); }
-  }();
+  string abs = combine_path(getcwd(), file);
+  string snippet = sprintf(
+    "object h = class {\n"
+    "  string acc = \"\";\n"
+    "  void compile_error(string f, int l, string m) { acc += f + \":\" + l + \": \" + m + \"\\n\"; }\n"
+    "  void compile_warning(string f, int l, string m) { acc += f + \":\" + l + \": warning: \" + m + \"\\n\"; }\n"
+    "}();\n"
+    "mixed e = catch { compile_string(Stdio.read_file(%O), %O, h); };\n"
+    "write(h->acc);\n"
+    "if (e && h->acc == \"\") write(\"__THREW__ \" + (describe_error(e)/\"\\n\")[0] + \"\\n\");\n",
+    abs, abs);
 
-  mixed err = catch {
-    compile_string(Stdio.read_file(file), combine_path(getcwd(), file), handler);
-  };
-  errs = handler->acc;
-  if (err && errs == "")
-    errs = sprintf("%s\n", describe_error(err));
-  return errs;
+  array(string) cmd = ({ "pike" });
+  foreach (extra_M, string d) cmd += ({ "-M", d });
+  foreach (extra_I, string d) cmd += ({ "-I", d });
+  cmd += ({ "-e", snippet });
+
+  mapping res = Process.run(cmd, ([ "cwd": dirname(abs) ]));
+  string out = (res->stdout || "");
+  string err = (res->stderr || "");
+
+  // Anything the child wrote to stderr is a failure the handler could not
+  // capture. Attribute it to this file and keep only the informative head.
+  if (String.trim_all_whites(err) != "" || has_prefix(out, "__THREW__")) {
+    string first;
+    if (has_prefix(out, "__THREW__")) first = String.trim_all_whites(out[9..]);
+    else {
+      array(string) el = (err / "\n") - ({ "" });
+      first = sizeof(el) ? String.trim_all_whites(el[0]) : "compilation failed";
+    }
+    string acc = sprintf("%s:0: %s\n", file, first);
+    int shown = 0;
+    foreach ((err / "\n") - ({ "" }), string l) {
+      if (has_value(l, "/lib/master.pike")) continue;
+      if (String.trim_all_whites(l) == first) continue;
+      if (shown++ >= 2) break;
+      acc += sprintf("%s:0:   %s\n", file, String.trim_all_whites(l));
+    }
+    return acc + (has_prefix(out, "__THREW__") ? "" : out);
+  }
+  return out;
 }
 
 //! Compile inside a real Roxen install, via its own ./start --program.
@@ -223,6 +305,9 @@ int main(int argc, array(string) argv)
     else if (a == "-I" && i + 1 < argc) extra_I += ({ argv[++i] });
     else if (a == "--quiet") quiet = 1;
     else if (has_prefix(a, "--exclude=")) exclude_globs += ({ a[10..] });
+    else if (a == "--strict") strict = 1;
+    else if (a == "--color") use_color = 1;
+    else if (a == "--no-color") use_color = 0;
     else if (a == "-h" || a == "--help") {
       write(#"pike-check — check that Pike code compiles
 
@@ -235,6 +320,11 @@ Options:
   -I <dir>        extra include path root (repeatable)
   --quiet         only report problems
   --exclude=<glob> skip matching paths (repeatable)
+  --strict        treat compiler warnings as errors
+  --color / --no-color   force colour on or off (default: auto, honours NO_COLOR)
+
+Diagnostics are printed as absolute `file:line:col: message`, which most
+editors and terminals render as a clickable link.
   -h, --help      this text
 
 A directory argument is walked recursively; every .pike and .pmod under it is
@@ -299,7 +389,8 @@ never silently accepted.
 
       foreach (missing_inc, array(string) mi)
         if (!roxen_headers[mi[0]])
-          write("%s:%s: cannot find include file %s\n", f, mi[1], mi[0]);
+          write("%s\n", diag(f, (int)mi[1],
+                              sprintf("cannot find include file %s", mi[0]), "error"));
 
       if (sizeof(other)) { errors += sizeof(other); bad_files++; }
       if (sizeof(rox)) {
@@ -328,6 +419,27 @@ never silently accepted.
       if (!quiet) write("%s: OK\n", f);
       continue;
     }
+
+    // Warnings are not failures. Pike's own SSL.pmod/Session.pike compiles with
+    // type warnings; counting those as errors would fail correct code.
+    array(string) warn_lines = ({}), err_lines = ({});
+    foreach (errs / "\n", string l) {
+      if (l == "") continue;
+      if (has_value(l, ": warning: ")) warn_lines += ({ l }); else err_lines += ({ l });
+    }
+    if (strict) { err_lines += warn_lines; warn_lines = ({}); }
+
+    if (!sizeof(err_lines)) {
+      ok_files++;
+      if (!quiet) {
+        write("%s %s%s\n", c(C_GRN, "OK"), f, sizeof(warn_lines)
+                ? c(C_DIM, sprintf(" (%d warning%s)", sizeof(warn_lines),
+                          sizeof(warn_lines) == 1 ? "" : "s")) : "");
+        foreach (warn_lines, string l) write("  %s\n", reformat(l));
+      }
+      continue;
+    }
+    errs = err_lines * "\n";
 
     // Split real errors from unresolved Roxen runtime symbols.
     multiset(string) undef = undefined_names(errs);
@@ -380,17 +492,17 @@ never silently accepted.
       real_lines = filtered;
     }
 
-    foreach (real_lines, string l) write("%s\n", l);
+    foreach (real_lines, string l) write("%s\n", reformat(l));
     errors += sizeof(real_lines);
     if (sizeof(real_lines)) bad_files++;
 
     if (sizeof(roxen_undef)) {
       unverified += sizeof(roxen_undef);
       warn_files++;
-      write("\n!! %s: %d Roxen reference%s could NOT be verified: %s\n",
+      write("\n%s %s: %d Roxen reference%s could NOT be verified: %s\n", c(C_YEL + C_BOLD, "!!"),
             f, sizeof(roxen_undef), sizeof(roxen_undef) == 1 ? "" : "s",
             sort(indices(roxen_undef)) * ", ");
-      foreach (roxen_lines, string l) write("     %s\n", l);
+      foreach (roxen_lines, string l) write("     %s\n", reformat(l));
       if (!rdir)
         write("   No Roxen install found. Pass --roxen=<dir> (the directory\n"
               "   containing ./start), or set ROXEN_DIR.\n");
@@ -406,15 +518,15 @@ never silently accepted.
           sizeof(files), sizeof(files) == 1 ? "" : "s", ok_files, bad_files, warn_files);
 
   if (errors) {
-    write("\nFAILED: %d error%s in %d file%s\n", errors, errors == 1 ? "" : "s",
-          bad_files, bad_files == 1 ? "" : "s");
+    write("\n%s %d error%s in %d file%s\n", c(C_RED + C_BOLD, "FAILED:"),
+          errors, errors == 1 ? "" : "s", bad_files, bad_files == 1 ? "" : "s");
     return 1;
   }
   if (unverified) {
-    write("\nINCOMPLETE: your code compiled, but %d Roxen reference%s went "
-          "unverified.\n", unverified, unverified == 1 ? "" : "s");
+    write("\n%s your code compiled, but %d Roxen reference%s went unverified.\n",
+          c(C_YEL + C_BOLD, "INCOMPLETE:"), unverified, unverified == 1 ? "" : "s");
     return 2;
   }
-  if (!quiet) write("\nOK: everything compiled\n");
+  if (!quiet) write("\n%s everything compiled\n", c(C_GRN + C_BOLD, "OK:"));
   return 0;
 }

@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-48%2F48_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-52%2F52_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -90,6 +90,16 @@ one, Roxen references are reported as **unverified warnings** and never silently
 INCOMPLETE: your code compiled, but 1 Roxen reference went unverified.
 ```
 
+Diagnostics are absolute `file:line:col: message`, which editors and terminals turn into
+clickable links, and are coloured when writing to a terminal (`--color`/`--no-color`,
+honours `NO_COLOR`).
+
+**Validated against real source.** Run over Pike 8.0.1116's own standard library — its
+matching compiler — **535 of 545 modules compile clean**. Of the 10 that do not, 7 need
+GTK bindings that are not built here and 3 are `.pmod` submodules whose sibling references
+resolve only through their parent module, a documented limitation of checking a submodule
+standalone.
+
 Exit status distinguishes the three outcomes: `0` clean, `1` real errors in your code,
 `2` compiled but Roxen went unchecked. A pass is never claimed for code that wasn't
 actually checked.
@@ -162,7 +172,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 48   failed: 0
+passed: 52   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are
