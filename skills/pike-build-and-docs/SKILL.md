@@ -49,6 +49,17 @@ See everything available on your install:
 ls $(pike -e 'write("%s\n", master()->pike_module_path[0]);')/Tools.pmod/Standalone.pmod/
 ```
 
+> **"Ships with Pike" means upstream Pike, not every package.** Distributions split it up.
+> On Debian/Ubuntu the base `pike8.0` package omits `precompile` and `module` — they are in
+> `pike8.0-dev`, and `pike -x precompile` fails with a missing-file error until you install
+> it. Rocky/RHEL do not package Pike at all; it must be built from source.
+>
+> Probe the interface rather than assuming presence:
+>
+> ```bash
+> pike -x precompile --help    # exits 0 and prints usage when available
+> ```
+
 ## C Modules
 
 The split matters, and it is easy to state wrongly:

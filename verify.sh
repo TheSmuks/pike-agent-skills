@@ -167,10 +167,13 @@ else
 fi
 
 check "join_autodoc documents its usage" "join_autodoc" pike -x join_autodoc --help
-check "precompile converts .cmod to .c" "Converts" \
-  sh -c "grep -h 'constant description' \"\$(pike -e 'write(\"%s\n\", master()->pike_module_path[0]);')\"/Tools.pmod/Standalone.pmod/precompile.pike"
-check "module installer is available" "Pike module installer" \
-  sh -c "grep -h 'constant description' \"\$(pike -e 'write(\"%s\n\", master()->pike_module_path[0]);')\"/Tools.pmod/Standalone.pmod/module.pike"
+# These probe the documented interface rather than a file path, so they stay valid
+# wherever a distribution chooses to install the tools.
+#
+# Note: Debian/Ubuntu split the C-module tooling out of the base `pike8.0` package.
+# If precompile/module are missing there, install `pike8.0-dev`.
+check "precompile converts .cmod to .c" "cmod" pike -x precompile --help
+check "module installer is available" "Pike module installer" pike -x module --help
 check "monger (stock package manager) is available" "Monger" pike -x monger --help
 echo
 
