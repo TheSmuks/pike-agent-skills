@@ -100,6 +100,64 @@ path root, not to the current file. `MyLib.Net` requires a `MyLib.pmod` reachabl
 path root — being in the same directory as the caller is not enough unless that
 directory is on the path.
 
+## Tracing a Chain to Its Sources
+
+`tools/pike-resolve.pike` answers "where does this actually come from?" deterministically,
+using Pike's own resolver rather than guessing from filenames.
+
+```bash
+pike -M . tools/pike-resolve.pike Leaf.pike
+```
+
+```
+# runtime inherit chain (authoritative)
+Leaf.pike
+    Middle.pike
+      Base.pike
+      Lib.pmod/Mixin.pike
+
+# static inherit chain (as written in source)
+Leaf.pike
+  inherit "Middle" -> Middle.pike
+      inherit "Base" -> Base.pike
+      inherit Lib.Mixin -> Lib.pmod/Mixin.pike
+```
+
+Two passes, because they see different things:
+
+| Pass | How | Sees |
+|------|-----|------|
+| **runtime** | compiles the target, walks `Program.inherit_tree()`, reports `Program.defined()` | exactly what Pike loaded — authoritative, but **inherits only** |
+| **static** | tokenises with `Parser.Pike.split()`, resolves each name as written | inherits **and imports**, and works on code that does not compile |
+
+`import` leaves no runtime trace, so the static pass is the only way to see it. Use
+`--imports` to follow imports transitively.
+
+```bash
+pike -M . tools/pike-resolve.pike --imports Foo.pike   # include imports
+pike -M . tools/pike-resolve.pike --static Broken.pike # target does not compile
+pike -M . tools/pike-resolve.pike --json Foo.pike      # machine-readable
+pike tools/pike-resolve.pike Standards.JSON            # a module, not a file
+```
+
+Installed modules are marked `[installed module]` and **not** descended into — otherwise
+one stdlib import drags in the entire runtime's inherit tree. Pass `--system` to descend
+anyway.
+
+Unresolved references are reported and exit non-zero. That usually means a module-path
+root is missing — add it with `-M`.
+
+### Two resolution rules the tool encodes
+
+Both are easy to get wrong by hand:
+
+- **String references resolve against the *including file's* directory**, not the current
+  working directory. `inherit "Helper"` inside `sub/User.pike` finds `sub/Helper.pike`,
+  even if a `Helper.pike` also sits at the root.
+- **The same applies to casting a path to a program.** `(program)"Foo.pike"` inside a
+  script resolves relative to *that script's* directory. Cast an absolute path
+  (`combine_path(getcwd(), path)`) when the path came from the command line.
+
 ## `inherit` vs `import`
 
 | | Effect | Use for |
@@ -149,4 +207,5 @@ Never "fix" a Pike project to a single project-wide case style.
 
 ## Reference
 
+- `tools/pike-resolve.pike` — trace inherit/import chains to source files
 - `references/resolution.md` — resolution rules with verified worked examples
