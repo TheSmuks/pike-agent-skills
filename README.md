@@ -99,6 +99,13 @@ passed: 31   failed: 0
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are
 still telling the truth.
 
+## Does it actually help?
+
+[`EVAL.md`](EVAL.md) is a 7-probe hand-run check of whether an agent's *behaviour* changes
+with the skills installed. Each probe targets a misconception where the no-skill answer is
+wrong and, in several cases, silently green. `verify.sh` proves the commands; `EVAL.md`
+probes the behaviour.
+
 ## Related
 
 - [roxen-agent-skills](https://github.com/TheSmuks/roxen-agent-skills) — Roxen WebServer skills, verified against real Roxen source. Roxen modules are Pike programs, so both are useful together
