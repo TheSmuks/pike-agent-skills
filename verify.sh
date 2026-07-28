@@ -188,6 +188,29 @@ check "module installer is available" "Pike module installer" pike -x module --h
 check "monger (stock package manager) is available" "Monger" pike -x monger --help
 echo
 
+# ------------------------------------------------------------- roxen mechanisms
+# The Roxen skill documents behaviour of a Roxen tree, which is not shipped here.
+# What *is* testable is the underlying Pike/tooling mechanics it relies on.
+echo "pike-roxen-modules"
+
+# inherit "module" (no .pike extension) resolves module.pike
+mkdir -p "$TMP/inh"
+echo 'string who() { return "inherit-ok"; }' > "$TMP/inh/module.pike"
+printf 'inherit "module";\nint main() { write("%%s\\n", who()); return 0; }\n' > "$TMP/inh/mymod.pike"
+check 'inherit "module" resolves module.pike' "inherit-ok" \
+  sh -c "cd '$TMP/inh' && pike mymod.pike"
+
+# glob("Tag*") skips names that merely contain "Tag" — the tag-discovery rule
+check 'glob("Tag*") matches only Tag-prefixed names' '"TagFoo"' \
+  pike -e 'write("%O\n", glob("Tag*", ({"TagFoo","BarTag","xTagY"})));'
+if pike -e 'write("%O\n", glob("Tag*", ({"BarTag"})));' 2>&1 | grep -q "BarTag"; then
+  bad 'glob("Tag*") must not match suffix names' "BarTag matched"
+else
+  ok 'glob("Tag*") rejects suffix names like BarTag'
+fi
+
+echo
+
 # ------------------------------------------------------------------ repo health
 echo "repo consistency"
 

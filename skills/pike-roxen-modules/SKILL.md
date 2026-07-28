@@ -1,102 +1,90 @@
 ---
 name: pike-roxen-modules
 description: >
-  Find, read, and write Roxen WebServer modules in Pike — recognising a Roxen module,
-  the module_type taxonomy, the registration constants and callbacks, defvar configuration,
-  and how Roxen decides which module handles a given file or extension. Use when working
-  in a Roxen codebase, identifying whether Pike files are Roxen modules, tracing which
-  module serves a URL or file type, or figuring out what a project-specific extension
-  such as .inc or .rjs actually does.
-  Triggers on: Roxen, RXML, module_type, defvar, find_file, query_location, MODULE_LOCATION,
-  MODULE_TAG, roxen module, .inc, .rjs, RXML tag, Roxen WebServer, module.h.
+  Work in a Roxen WebServer codebase in Pike — recognising and navigating modules, the
+  module_type taxonomy, writing MODULE_LOCATION modules with find_file and response
+  mappings, writing RXML tags with RXML.Tag/RXML.Frame, the RequestID object, defvar
+  configuration, and logging. Use when reading or modifying Roxen modules, adding an RXML
+  tag, serving content from a Roxen module, or tracing which module handles a request.
+  Triggers on: Roxen, RXML, module_type, defvar, find_file, query_location, RXML.Tag,
+  RXML.Frame, MODULE_LOCATION, MODULE_TAG, RequestID, http_string_answer, roxen module.
 ---
 
 # Roxen Modules
 
 ## When to Use
 
-- Determining whether a Pike file is a Roxen module, and what kind
-- Navigating an unfamiliar Roxen codebase
-- Tracing which module serves a URL, file, or extension
-- Writing or modifying a Roxen module
+- Reading or modifying a Roxen module
+- Writing an RXML tag, or a module that serves content
+- Tracing which module handles a URL or request
+- Determining whether Pike files in a tree are Roxen modules
 
-Verified against the Roxen source (branches `6.3` and current `8.3.806`).
+Verified against the Roxen source, branches `6.3` and `8.3.806`. Counts below are measured
+across the 170 module files in `server/modules` and `server/more_modules`.
 
-## Read This First: grep Silently Misses Roxen Files
+## File Encoding
 
 Roxen sources are **ISO-8859-1**, not UTF-8 — most carry a latin-1 `©` in the copyright
-header. In a UTF-8 locale, `grep` classifies them as binary and reports **no matches**
-while exiting `1`, so a search looks like a clean "not found".
+header. GNU `grep` and `ripgrep` both search them correctly, so no special flag is needed
+to read them.
+
+It matters when **writing**: preserve the existing encoding. Rewriting a latin-1 file as
+UTF-8 silently changes those bytes and leaves the tree mixed-encoding. Check before
+editing:
 
 ```bash
-grep -c inherit server/modules/filesystems/filesystem.pike
-# (no output, exit 1)          ← wrong
-
-grep -a -c inherit server/modules/filesystems/filesystem.pike
-# 3                            ← correct
+file server/modules/filesystems/filesystem.pike
+# ISO-8859 text
 ```
 
-**144 of Roxen's 170 module files are affected.** Measured across the tree:
+## Recognising a Module
 
-| Search | `grep -a` | plain `grep` |
-|--------|-----------|--------------|
-| `inherit "module"` | **129** | 25 |
-| `constant module_type` | **134** | 22 |
-
-Plain grep undercounts by roughly 80%. **Always use `grep -a`** (or `LC_ALL=C grep`, or
-`rg --text`) when searching a Roxen codebase. Getting this wrong produces confident,
-completely wrong conclusions about what a codebase contains.
-
-## Recognising a Roxen Module
-
-A Roxen module is a `.pike` file, but **not every `.pike` file in a Roxen tree is a
-module**. Check these signals, most reliable first — frequencies are from the 170
-module files in Roxen's `server/modules` and `server/more_modules`:
+Not every `.pike` file in a Roxen tree is a module. Check these, most reliable first:
 
 | Signal | Files | Notes |
 |--------|-------|-------|
-| `constant module_type = MODULE_…;` | 134 / 170 | **Strongest signal.** Also tells you what kind |
-| `inherit "module";` | 129 / 170 | Note: **`"module"`, not `"module.pike"`** |
+| `constant module_type = MODULE_…;` | 134 / 170 | **Strongest.** Also says what kind |
+| `inherit "module";` | 129 / 170 | **`"module"`, not `"module.pike"`** |
 | `#include <module.h>` | 126 / 170 | Angle-bracket include from `server/etc/include/` |
-| `constant module_name` / `module_doc` | — | Display name and description |
 | `defvar(...)` | 92 / 170 | Declares configuration variables |
 
-> **Do not detect Roxen modules by `inherit "module.pike"`.** That form appears in exactly
-> **1 of 170** files (`server/modules/configuration/avg_profiling.pike`). The idiomatic form
-> is `inherit "module";` — Pike resolves it to the `module.pike` program without the
-> extension. Detecting on the `.pike` spelling misses ~99% of real modules.
+> **Do not detect on `inherit "module.pike"`.** That spelling appears in exactly **1 of
+> 170** files. Pike resolves `inherit "module"` to the `module.pike` program without the
+> extension; the extensionless form is idiomatic.
 
-Typical header:
+Real header, from `server/modules/filesystems/filesystem.pike`:
 
 ```pike
-constant cvs_version = "$Id: … $";
-constant thread_safe = 1;
+inherit "module";
+inherit "socket";
+
+constant cvs_version= "$Id: … $";
+constant thread_safe=1;
 
 #include <module.h>
-#include <config.h>
-inherit "module";
-
-constant module_type = MODULE_TAG;
-constant module_name = "My Tag Module";
-constant module_doc  = "Describes what this does.";
+#include <roxen.h>
+#include <stat.h>
+#include <request_trace.h>
 ```
+
+Multiple inherits are normal. Angle-bracket includes resolve from `server/etc/include/`.
 
 ## The `module_type` Taxonomy
 
-From `server/etc/include/module_constants.h` — a bitfield, so a module can be several
-kinds at once (`MODULE_LOCATION | MODULE_TAG`):
+From `server/etc/include/module_constants.h`. It is a **bitfield** — a module can declare
+several kinds at once (`MODULE_LOCATION | MODULE_TAG`), so read every bit.
 
 | Constant | Bit | Role |
 |----------|-----|------|
 | `MODULE_ZERO` | 0 | No type; utility or base module |
 | `MODULE_EXTENSION` | 1<<0 | Handles a URL extension |
-| `MODULE_LOCATION` | 1<<1 | Mounted at a path; serves files from it |
+| `MODULE_LOCATION` | 1<<1 | Mounted at a path; serves files |
 | `MODULE_URL` | 1<<2 | Rewrites or intercepts URLs |
-| `MODULE_FILE_EXTENSION` | 1<<3 | Claims file extensions (see below) |
+| `MODULE_FILE_EXTENSION` | 1<<3 | Claims file extensions |
 | `MODULE_TAG` (= `MODULE_PARSER`) | 1<<4 | Provides RXML tags |
-| `MODULE_LAST` / `MODULE_FIRST` | 1<<5 / 1<<6 | Runs last / first in request handling |
+| `MODULE_LAST` / `MODULE_FIRST` | 1<<5 / 1<<6 | Runs last / first |
 | `MODULE_AUTH` | 1<<7 | Authentication |
-| `MODULE_MAIN_PARSER` | 1<<8 | The main content parser |
+| `MODULE_MAIN_PARSER` | 1<<8 | Main content parser |
 | `MODULE_TYPES` | 1<<9 | Maps extensions to content types |
 | `MODULE_DIRECTORIES` | 1<<10 | Directory listings |
 | `MODULE_PROXY` | 1<<11 | Proxy behaviour |
@@ -109,51 +97,170 @@ kinds at once (`MODULE_LOCATION | MODULE_TAG`):
 | `MODULE_SECURITY` | 1<<30 | Security |
 | `MODULE_EXPERIMENTAL` | 1<<31 | Marked experimental |
 
-`MODULE_PARSER` is a compatibility alias for `MODULE_TAG` — they are the same bit.
-
-**Read `module_type` first.** It tells you where in the request lifecycle the module runs,
-which is the fastest way to understand an unfamiliar module.
+`MODULE_PARSER` is a compatibility alias for `MODULE_TAG` — the same bit.
 
 ## Callbacks
-
-By frequency across the bundled modules — implement or look for these:
 
 | Callback | Files | Purpose |
 |----------|-------|---------|
 | `create()` | 100 | Declare `defvar()` configuration variables |
-| `start()` | 83 | Called when the module is enabled or reloaded |
-| `status()` | 50 | HTML status shown in the admin interface |
-| `find_file(path, id)` | 23 | **`MODULE_LOCATION`**: serve a file from the mount point |
+| `start()` | 83 | Module enabled or reloaded |
+| `status()` | 50 | HTML status for the admin interface |
+| `find_file(path, id)` | 23 | **`MODULE_LOCATION`**: serve a file |
 | `stop()` | 18 | Cleanup on disable |
 | `filter(result, id)` | 13 | **`MODULE_FILTER`**: post-process a response |
-| `first_try(id)` | 11 | **`MODULE_FIRST`**: intercept before normal handling |
+| `first_try(id)` | 11 | **`MODULE_FIRST`**: intercept early |
 | `query_location()` | 9 | **`MODULE_LOCATION`**: the mount path |
 | `parse_rxml(...)` | 4 | RXML parsing entry point |
 
-`id` is the `RequestID` object carrying the request. `RXML_CONTEXT` is a macro for the
-current RXML evaluation context, used inside tag modules.
+## Serving Content: `find_file` and Response Mappings
 
-## Configuration with `defvar`
-
-Configuration variables are declared in `create()` and read with `query()`:
+A `MODULE_LOCATION` module mounts at `query_location()` and answers with `find_file()`:
 
 ```pike
+#include <module.h>
+inherit "module";
+
+constant module_type = MODULE_LOCATION;
+constant module_name = "My Filesystem";
+
 void create() {
   defvar("mountpoint", "/files/", "Mount point", TYPE_LOCATION,
          "Where this module is mounted.");
-  defvar("enabled", 1, "Enabled", TYPE_FLAG, "Turn the module on.");
 }
 
 string query_location() { return query("mountpoint"); }
+
+mixed find_file(string path, RequestID id) {
+  if (path == "hello")
+    return Roxen.http_string_answer("Hello", "text/plain");
+  return 0;      // 0 = not mine, keep looking
+}
 ```
 
-`module.h` defines the `TYPE_*` constants (`TYPE_STRING`, `TYPE_FILE`, `TYPE_INT`,
-`TYPE_DIR`, `TYPE_FLAG`/`TYPE_TOGGLE`, `TYPE_STRING_LIST`, `TYPE_DIR_LIST`, …) and the
-shorthand `QUERY(var)`, which expands to `query("var")`.
+`path` is relative to the mount point. Returning `0` passes the request on.
+
+Response helpers live in `server/etc/modules/Roxen.pmod`. Signatures, verbatim:
+
+```pike
+mapping(string:mixed) http_string_answer(string text, string|void type)   // default text/html
+mapping(string:mixed) http_low_answer(int status_code, string data)
+mapping(string:mixed) http_status(int status_code, void|string message, mixed... args)
+mapping http_redirect(string url, RequestID|void id, multiset|void prestates,
+                      mapping|void variables, void|int http_code)
+string http_status_message(int status_code)
+```
+
+By usage across the bundled modules: `http_status` (101), `http_string_answer` (34),
+`http_redirect` (19), `http_low_answer` (19), `http_encode_url` (14),
+`http_rxml_answer` (9), `http_pipe_in_progress` (9).
+
+Use `Roxen.http_rxml_answer()` when the returned content should itself be RXML-parsed.
+
+## Writing RXML Tags
+
+A tag is a class inheriting `RXML.Tag`, containing a nested `Frame` class. Real example,
+from `server/modules/tags/countdown.pike`, unmodified:
+
+```pike
+class TagCountdown {
+  inherit RXML.Tag;
+  constant name = "countdown";
+  constant flags = RXML.FLAG_EMPTY_ELEMENT;
+
+  class Frame {
+    inherit RXML.Frame;
+
+    array do_return(RequestID id) {
+      result = countdown(args, id);
+      return 0;
+    }
+  }
+}
+```
+
+- `constant name` is the RXML tag name (`<countdown/>` here)
+- Inside `Frame`: `args` is the tag's attribute mapping, `content` its body, and assigning
+  `result` produces the output. Return `0` from `do_return` when done.
+- `CACHE(seconds)` (from `roxen.h`, expands to `REQUESTID->lower_max_cache(seconds)`)
+  limits how long the result may be cached.
+
+> **The class must be named `Tag*`.** `query_tag_set()` in `server/base_server/module.pike`
+> discovers tags with `glob("Tag*", indices(this_object()))`, then keeps those that are
+> `is_RXML_Tag`. A class named `CountdownTag` is **silently ignored** — no error, the tag
+> simply never exists. 132 of the 139 tag classes in `server/modules/tags/` follow this.
+>
+> To register a tag that does not follow the naming rule, build a tag set explicitly:
+> ```pike
+> RXML.TagSet(this_module(), "_user_tag", ({ UserTagContents() }));
+> ```
+
+Inheritance counts across `server/modules/tags/`: `RXML.Tag` 163, `RXML.Frame` 118,
+`RXML.Value` 16, `RXML.Scope` 4.
+
+Flags by usage: `FLAG_EMPTY_ELEMENT` (51), `FLAG_DONT_RECOVER` (14), `FLAG_CUSTOM_TRACE`
+(5), `FLAG_SOCKET_TAG` (4), `FLAG_PROC_INSTR` (4), `FLAG_DONT_CACHE_RESULT` (4).
+
+## The `RequestID` Object
+
+`id` carries the request. Most-used members across the bundled modules:
+
+| Member | Uses | What it is |
+|--------|------|-----------|
+| `id->misc` | 804 | Per-request scratch mapping — where modules stash state |
+| `id->not_query` | 184 | The path part of the URL, without the query string |
+| `id->conf` | 163 | The `Configuration` object for this virtual server |
+| `id->variables` | 89 | Form and query variables |
+| `id->method` | 69 | `"GET"`, `"POST"`, … |
+| `id->real_variables` | 59 | Variables before any aliasing |
+| `id->prestate` | 47 | Prestate multiset from the URL |
+| `id->request_headers` | 37 | Incoming headers |
+| `id->raw_url` | 33 | The unprocessed URL |
+| `id->cookies` | 31 | Cookies |
+| `id->realfile` | 27 | Filesystem path, when one applies |
+| `id->remoteaddr` | 26 | Client address |
+
+`id->misc` dominates because it is the conventional channel for passing data between
+modules within one request.
+
+## Configuration with `defvar`
+
+```pike
+void create() {
+  defvar("mountpoint", "/files/", "Mount point", TYPE_LOCATION, "Help text.");
+  defvar("enabled", 1, "Enabled", TYPE_FLAG, "Turn the module on.");
+}
+```
+
+Read with `query("name")`, or the `QUERY(name)` macro. `QUERY()` used to be a valid lvalue
+and no longer is — write with `set("var", value)`.
+
+`TYPE_*` constants from `module.h`:
+
+```
+TYPE_STRING  TYPE_FILE  TYPE_INT  TYPE_DIR  TYPE_STRING_LIST  TYPE_MULTIPLE_STRING
+TYPE_INT_LIST  TYPE_MULTIPLE_INT  TYPE_FLAG  TYPE_TOGGLE  TYPE_DIR_LIST
+TYPE_LOCATION  TYPE_URL  TYPE_URL_LIST  TYPE_FILE_LIST  TYPE_PASSWORD  TYPE_TEXT
+TYPE_TEXT_FIELD  TYPE_FONT  TYPE_FLOAT  TYPE_MODULE  TYPE_CUSTOM
+```
+
+`TYPE_FLAG`/`TYPE_TOGGLE`, `TYPE_STRING_LIST`/`TYPE_MULTIPLE_STRING`, and
+`TYPE_INT_LIST`/`TYPE_MULTIPLE_INT` are pairs of aliases.
+
+## Logging and Debugging
+
+```pike
+report_debug("...");     // 53 uses
+report_error("...");     // 45
+report_warning("...");   // 28
+report_notice("...");    // 19
+```
+
+`#include <request_trace.h>` brings in `TRACE_ENTER` / `TRACE_LEAVE`, which annotate the
+per-request trace shown when request tracing is enabled — the fastest way to see which
+modules touched a request and in what order.
 
 ## Codebase Layout
-
-Roxen's bundled modules are grouped by purpose — expect the same shape in a site tree:
 
 ```
 server/modules/
@@ -169,64 +276,38 @@ server/modules/
 ├── database/  ldap/  throttling/  js-support/
 └── configuration/  compat/  examples/  misc/
 server/more_modules/  additional modules (flat, no subdirectories)
-server/base_server/   core: configuration.pike, roxen.pike
+server/base_server/   core: configuration.pike, roxen.pike, module.pike
 server/etc/include/   module.h, module_constants.h, roxen.h, config.h
+server/etc/modules/   Roxen.pmod — the http_* response helpers
 ```
 
-The directory a module lives in is a strong hint about its `module_type`, but confirm by
-reading the constant — a module can declare several type bits regardless of location.
+The directory hints at a module's type, but confirm with `constant module_type`.
 
-Angle-bracket includes (`#include <module.h>`) resolve from `server/etc/include/`. When an
-include cannot be found, that path is what is missing from the include path.
+## Request Handling Order
 
-## `.inc`, `.rjs`, and Other Extensions
+1. `MODULE_FIRST` modules run `first_try()`
+2. URL modules may rewrite the request
+3. The `MODULE_LOCATION` module with the longest matching `query_location()` prefix gets
+   `find_file()`
+4. Content type is assigned, possibly by a `MODULE_TYPES` module
+5. Parsers (`MODULE_TAG` / `MODULE_MAIN_PARSER`) run if the content type calls for it
+6. `MODULE_FILTER` modules post-process via `filter()`
+7. `MODULE_LOGGER` modules log
 
-**These are not Roxen WebServer concepts.** Verified across both Roxen `6.3` and `8.3.806`:
+To find which module owns a path:
 
-| Extension | In Roxen source |
-|-----------|-----------------|
-| `.rjs` | **Zero** files and **zero** code references |
-| `.inc` | No files; one reference — `404.inc`, the default 404-page filename in `configuration.pike` |
-
-So if a codebase uses `.inc` or `.rjs`, the meaning comes from **that project**, not from
-Roxen. Do not assume semantics for them. Roxen decides how to treat a file from which
-module handles it, so the answer is always in the configuration and the modules:
-
-**How to find out what an extension means in a given deployment:**
-
-1. **Look for a module claiming it.** `MODULE_FILE_EXTENSION` modules implement
-   `query_file_extensions()` returning an array of extensions, plus
-   `handle_file_extension()`. `configuration.pike` builds an extension → handler map from
-   these.
-   ```bash
-   grep -a -rn "query_file_extensions\|handle_file_extension" --include='*.pike' .
-   ```
-   Note: **no module bundled with Roxen uses this hook** — a hit means custom code, which
-   is exactly what you are looking for.
-
-2. **Look for the extension as a literal** in module source and configuration:
-   ```bash
-   grep -a -rn '"\.inc"\|"\.rjs"\|\.rjs\b' --include='*.pike' --include='*.xml' .
-   ```
-
-3. **Check content-type mapping.** `MODULE_TYPES` modules supply `type_from_extension`,
-   which `configuration.pike` uses to assign a content type. Whether a file is RXML-parsed
-   normally follows from its content type, not its extension.
-
-4. **Check the mount points.** `MODULE_LOCATION` modules declare `query_location()`; the
-   module mounted over a path decides how files under it are served.
-
-Report what you find rather than guessing. An extension with no module claiming it is
-served as a plain file.
+```bash
+grep -rn 'query_location\|defvar("mountpoint"' --include='*.pike' .
+```
 
 ## Checklist
 
-- [ ] Searched with `grep -a` / `LC_ALL=C` / `rg --text` — never plain `grep`
 - [ ] Identified modules by `constant module_type`, not by filename
-- [ ] Used `inherit "module"` (no `.pike`) when detecting or writing
-- [ ] Read `module_type` before reading the body
-- [ ] For an unknown extension: searched for a module claiming it before assuming meaning
+- [ ] Used `inherit "module"` (no `.pike`)
+- [ ] Checked every bit of `module_type` — it is a bitfield
+- [ ] RXML tag classes named `Tag*`, or registered via an explicit `RXML.TagSet`
+- [ ] `find_file` returns `0` for "not mine", a `Roxen.http_*` mapping otherwise
 
 ## Reference
 
-- `references/module-anatomy.md` — annotated module skeletons per module_type
+- `references/module-anatomy.md` — annotated skeletons per module_type, includes, tracing
