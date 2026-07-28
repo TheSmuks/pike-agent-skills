@@ -89,7 +89,9 @@ is stubbed. That resolves `#include <module.h>` and locates `Roxen.pmod`.
 It does **not** boot the Roxen runtime: `--program` replaces `roxenloader.pike` rather
 than running after it, so the master swap and the constants it installs never happen.
 Code calling `Roxen.*` therefore still reports as unverified — `Roxen.pmod` itself needs
-that runtime. Verified in a container with a real Roxen 6.3 and Pike 8.0.1116.
+that runtime. Measured both ways in a container with a real Roxen 6.3 and Pike 8.0.1116: with
+roxenloader running `Roxen.pmod` compiles, under `--program` it does not. See
+[roxen-agent-skills/lab](https://github.com/TheSmuks/roxen-agent-skills/tree/main/lab).
 
 Roxen references that cannot be checked are reported as **unverified warnings** and never
 silently accepted:
