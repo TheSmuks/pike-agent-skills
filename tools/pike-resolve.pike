@@ -33,6 +33,14 @@ string roxen_dir;
 
 mapping(string:int) seen = ([]);
 array(string) include_roots = ({});
+array(string) program_roots = ({});
+
+//! Names bound at run time by the Roxen loader rather than provided by a file.
+//! `Master` is `add_constant("Master", this)` in roxen_master.pike, so
+//! `Master.Encoder` can never resolve to a path — reporting it as unresolved
+//! would be misleading.
+multiset(string) runtime_bound = (< "Master", "roxen", "roxenp", "Configuration",
+                                    "RoxenModule", "Protocol", "ModuleInfo" >);
 
 //! Resolve an #include. Angle form searches the include path; quote form is
 //! relative to the including file first.
@@ -123,16 +131,33 @@ string resolve_dotted(string name, string|void from_file)
     }
     return 0;
   }
-  mixed r;
-  if (catch { r = master()->resolv(name); }) return 0;
-  if (undefinedp(r) || !r) return 0;
-  if (programp(r)) {
-    string d = Program.defined(r);
-    if (d) return strip_line(d);
+  // Pure file lookup first. resolv() *compiles* the target, which is slow and,
+  // for modules needing a runtime (Roxen's RXML), prints compiler errors we
+  // cannot suppress. Locating the file answers "where does this live?" without
+  // any of that.
+  string located = locate_module(name);
+  if (located) return located;
+
+  // No resolv() fallback: it compiles the target, which prints compiler errors
+  // for anything needing a runtime (Roxen's RXML) and cannot be silenced. File
+  // lookup plus the parent-prefix fallback below answers the question without
+  // compiling anything.
+
+  // `RXML.Value` names a class *inside* RXML.pmod — there is no such file, so
+  // fall back to the innermost parent that does exist on disk.
+  array(string) parts = name / ".";
+  while (sizeof(parts) > 1) {
+    parts = parts[..sizeof(parts) - 2];
+    string parent = locate_module(parts * ".");
+    if (parent) {
+      if (Stdio.is_dir(parent)) {
+        string inner = combine_path(parent, "module.pmod");
+        if (Stdio.is_file(inner)) return inner;
+      }
+      return parent;
+    }
   }
-  // For module objects (dirnode/joinnode) Program.defined() would report
-  // master.pike, so find the module on disk instead.
-  return locate_module(name);
+  return 0;
 }
 
 //! Resolve a string inherit/import relative to the including file's directory.
@@ -142,10 +167,13 @@ string resolve_string_ref(string ref, string from_file)
 {
   string dir = dirname(from_file);
   if (dir == "") dir = ".";
-  foreach (({ ".pike", ".pmod", ".so", "" }), string ext) {
-    string cand = combine_path(dir, ref + ext);
-    if (Stdio.is_file(cand)) return cand;
-  }
+  // The including file's own directory first, then any extra program roots
+  // (Roxen keeps the `module.pike` that modules inherit in server/base_server).
+  foreach (({ dir }) + program_roots, string d)
+    foreach (({ ".pike", ".pmod", ".so", "" }), string ext) {
+      string cand = combine_path(d, ref + ext);
+      if (Stdio.is_file(cand)) return cand;
+    }
   // Fall back to treating it as a module name.
   return resolve_dotted(replace(ref, "/", "."));
 }
@@ -247,6 +275,10 @@ mapping walk_static(string file, int depth)
     if (!target && kind != "include" && !is_string && !has_value(name, ".") &&
         has_value(src, "class " + name))
       local_class = 1;
+
+    int runtime_sym = 0;
+    if (!target && kind != "include" && !is_string)
+      runtime_sym = runtime_bound[(name / ".")[0]];
     mapping entry = ([
       "kind": kind,
       "name": (kind == "include")
@@ -255,6 +287,7 @@ mapping walk_static(string file, int depth)
       "resolved": target ? tidy(target) : 0,
     ]);
     if (local_class) entry->local_class = 1;
+    if (runtime_sym) entry->runtime_bound = 1;
     if (target && is_system(target)) entry->system = 1;
 
     // Do not descend into installed modules unless asked: a single stdlib
@@ -284,7 +317,8 @@ void print_static(mapping node, string indent, int is_root)
     if (e->repeat)      note = "  (already shown)";
     else if (e->system) note = "  [installed module]";
     string dest = e->resolved ? e->resolved
-                : (e->local_class ? "(class in this file)" : "UNRESOLVED");
+                : (e->local_class ? "(class in this file)"
+                : (e->runtime_bound ? "(Roxen runtime constant)" : "UNRESOLVED"));
     write("%s  %s %s -> %s%s\n", indent, mark, e->name, dest, note);
     if (e->children) print_static(e->children, indent + "    ", 0);
   }
@@ -351,6 +385,10 @@ The static pass sees both and works on code that does not compile.
   if (roxen_dir) {
     string base = Stdio.is_dir(combine_path(roxen_dir, "server"))
                     ? combine_path(roxen_dir, "server") : roxen_dir;
+    foreach (({ "base_server", "." }), string d) {
+      string full = combine_path(base, d);
+      if (Stdio.is_dir(full)) program_roots += ({ full });
+    }
     foreach (({ "etc/modules" }), string d) {
       string full = combine_path(base, d);
       if (Stdio.is_dir(full)) master()->add_module_path(full);
@@ -428,7 +466,7 @@ The static pass sees both and works on code that does not compile.
   int unresolved = 0;
   void count_unresolved(mapping n) {
     foreach (n->refs || ({}), mapping e) {
-      if (!e->resolved && !e->local_class) unresolved++;
+      if (!e->resolved && !e->local_class && !e->runtime_bound) unresolved++;
       if (e->children) count_unresolved(e->children);
     }
   };
