@@ -97,23 +97,102 @@ multiset(string) roxen_symbols = (<
   "WebSocketAPI", "Concurrent", "CFUserDBModule", "NewLDAP",
 >);
 
-//! Locate a Roxen install. A real install has ./start and a bundled Pike
-//! under lib/; a bare source checkout has ./start but no lib/.
+//! Where the remembered Roxen path is kept, so it is asked for once.
+string config_file()
+{
+  string home = getenv("HOME");
+  if (!home) return 0;
+  string xdg = getenv("XDG_CONFIG_HOME") || combine_path(home, ".config");
+  return combine_path(xdg, "pike-agent-skills", "roxen-path");
+}
+
+//! True once the question has been answered, including a deliberate skip —
+//! so "no thanks" is remembered and the prompt does not return every run.
+int roxen_asked()
+{
+  string cf = config_file();
+  return cf && Stdio.is_file(cf);
+}
+
+string read_saved_roxen()
+{
+  string cf = config_file();
+  if (!cf || !Stdio.is_file(cf)) return 0;
+  string v = String.trim_all_whites(Stdio.read_file(cf) || "");
+  return sizeof(v) ? v : 0;
+}
+
+void save_roxen(string dir)
+{
+  string cf = config_file();
+  if (!cf) return;
+  mixed e = catch {
+    Stdio.mkdirhier(dirname(cf));
+    Stdio.write_file(cf, dir + "\n");
+  };
+  if (!e && !quiet) write("   remembered in %s\n", cf);
+}
+
+//! Is this a real install (rather than a source checkout)?
+int looks_like_roxen(string c)
+{
+  if (!c || !Stdio.is_dir(c)) return 0;
+  foreach (({ "start", "server/start" }), string s)
+    if (Stdio.is_file(combine_path(c, s))) return 1;
+  return 0;
+}
+
+//! Locate a Roxen install, in order of authority: explicit flag, environment,
+//! remembered answer, then the usual install locations.
 string find_roxen()
 {
   array(string) candidates = ({});
   if (roxen_dir) candidates += ({ roxen_dir });
   if (getenv("ROXEN_DIR")) candidates += ({ getenv("ROXEN_DIR") });
+  string saved = read_saved_roxen();
+  if (saved) candidates += ({ saved });
   candidates += ({ "/usr/local/roxen", "/opt/roxen", "/usr/lib/roxen",
-                   combine_path(getenv("HOME") || "/", "roxen") });
+                   "/usr/local/roxen/server", "/srv/roxen",
+                   combine_path(getenv("HOME") || "/", "roxen"),
+                   combine_path(getenv("HOME") || "/", "Roxen") });
 
-  foreach (candidates, string c) {
-    if (!c || !Stdio.is_dir(c)) continue;
-    // Accept either <dir>/start or <dir>/server/start.
-    foreach (({ "start", "server/start" }), string s)
-      if (Stdio.is_file(combine_path(c, s))) return c;
-  }
+  foreach (candidates, string c)
+    if (looks_like_roxen(c)) return c;
   return 0;
+}
+
+//! Interactive only: ask once, then remember. Never prompts in CI or when the
+//! output is piped — there the unverified warning is the right answer.
+int interactive()
+{
+  mixed t; catch { t = Stdio.stdin->tcgetattr(); };
+  return t ? 1 : 0;
+}
+
+string prompt_for_roxen()
+{
+  if (!interactive()) return 0;
+  write("\n%s This code uses Roxen, and no Roxen install was found.\n",
+        c(C_YEL + C_BOLD, "?"));
+  write("   Enter the path to your Roxen install (the directory containing\n"
+        "   ./start), or press Enter to skip and report it as unverified.\n");
+  write("   > ");
+  string line = Stdio.stdin->gets();
+  if (!line) return 0;
+  line = String.trim_all_whites(line);
+  if (!sizeof(line)) {
+    save_roxen("");                       // remember the skip
+    write("   skipped — rerun with --roxen=<dir> to set it later.\n");
+    return 0;
+  }
+  line = (line[0] == '~' && getenv("HOME"))
+           ? combine_path(getenv("HOME"), line[2..]) : line;
+  if (!looks_like_roxen(line)) {
+    write("   %s no ./start under %s — skipping.\n", c(C_RED, "not a Roxen install:"), line);
+    return 0;                             // not remembered: it was a mistake
+  }
+  save_roxen(line);
+  return line;
 }
 
 //! True when the install bundles its own Pike, which is what makes its module
@@ -365,6 +444,17 @@ never silently accepted.
   foreach (extra_I, string d) master()->add_include_path(d);
 
   string rdir = find_roxen();
+
+  // Ask once, on the first run that actually needs Roxen.
+  if (!rdir) {
+    int any_needs_roxen = 0;
+    foreach (files, string f) {
+      string src = Stdio.read_file(f);
+      if (src && mentions_roxen(src)) { any_needs_roxen = 1; break; }
+    }
+    if (any_needs_roxen && !roxen_asked()) rdir = prompt_for_roxen();
+  }
+
   int roxen_usable = rdir && has_bundled_pike(rdir);
 
   if (!quiet && rdir && !roxen_usable)

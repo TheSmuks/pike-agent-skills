@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-52%2F52_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-57%2F57_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -76,6 +76,11 @@ and it walks the tree.
 **Roxen is handled honestly.** Roxen's runtime is *bootstrapped*, not importable:
 `roxenloader` installs ~145 constants and swaps in `roxen_master.pike` before `Roxen.pmod`
 or `RXML.pmod` will compile. Stock Pike cannot resolve `Roxen.*` on its own.
+
+On the first run over Roxen code it looks for an install (common locations, `ROXEN_DIR`,
+`--roxen`), and if it finds none it asks once — on a terminal only — then remembers the
+answer in `$XDG_CONFIG_HOME/pike-agent-skills/roxen-path`. Declining is remembered too, so
+it never nags. In CI, where stdin is not a terminal, it never prompts.
 
 With `--roxen=<dir>` pointing at a real install, compilation happens **inside** it, via
 Roxen's own `./start --program` — its modules, its bundled Pike, nothing stubbed. Without
@@ -172,7 +177,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 52   failed: 0
+passed: 57   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are
