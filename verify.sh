@@ -23,6 +23,7 @@ check() { # check <label> <expected-substring> <command...>
   esac
 }
 
+HERE_TOOLS=$(cd "$(dirname "$0")/tools" && pwd)
 command -v pike >/dev/null 2>&1 || { echo "pike not found in PATH"; exit 1; }
 echo "Pike: $(pike --version 2>&1 | head -1)"
 echo
@@ -124,6 +125,53 @@ if pike "$TMP/selftest.pike" >/dev/null 2>&1; then
   ok "report_result() alone leaves exit code 0 (documented trap)"
 else
   bad "report_result() exit-code behaviour changed"
+fi
+echo
+
+# ------------------------------------------------------------------ resolver tool
+echo "tools/pike-resolve"
+
+R="$HERE_TOOLS/pike-resolve.pike"
+mkdir -p "$TMP/res/Lib.pmod"
+echo 'int base_v() { return 1; }'                       > "$TMP/res/Base.pike"
+echo 'int mixin_v() { return 2; }'                      > "$TMP/res/Lib.pmod/Mixin.pike"
+printf 'inherit "Base";\ninherit Lib.Mixin;\n'          > "$TMP/res/Middle.pike"
+printf 'inherit "Middle";\nint leaf_v(){return 4;}\n'   > "$TMP/res/Leaf.pike"
+printf 'import Standards.JSON;\ninherit "Middle";\n'    > "$TMP/res/Imp.pike"
+
+RES=$(cd "$TMP/res" && pike -M . "$R" Leaf.pike 2>&1)
+case "$RES" in *"runtime inherit chain (authoritative)"*)
+  ok "resolver reports the runtime chain" ;; *)
+  bad "resolver reports the runtime chain" "$(printf '%s' "$RES" | head -1)" ;; esac
+case "$RES" in *'inherit "Middle" -> Middle.pike'*)
+  ok "resolves a string inherit to its file" ;; *)
+  bad "resolves a string inherit to its file" ;; esac
+case "$RES" in *'inherit Lib.Mixin -> Lib.pmod/Mixin.pike'*)
+  ok "resolves a dotted inherit through the module path" ;; *)
+  bad "resolves a dotted inherit through the module path" ;; esac
+case "$RES" in *'inherit "Base" -> Base.pike'*)
+  ok "follows the chain transitively" ;; *)
+  bad "follows the chain transitively" ;; esac
+
+IMP=$(cd "$TMP/res" && pike -M . "$R" --imports Imp.pike 2>&1)
+case "$IMP" in *"import Standards.JSON"*"[installed module]"*)
+  ok "marks installed modules and does not descend into them" ;; *)
+  bad "marks installed modules" ;; esac
+
+# a genuinely unresolvable reference must be reported and exit non-zero
+printf 'inherit Nope.Missing;\n' > "$TMP/res/Bad.pike"
+if ( cd "$TMP/res" && pike -M . "$R" --static Bad.pike ) >/dev/null 2>&1; then
+  bad "unresolved reference exits non-zero" "exited 0"
+else
+  ok "unresolved reference exits non-zero"
+fi
+
+if ( cd "$TMP/res" && pike -M . "$R" --json Leaf.pike ) 2>/dev/null \
+     | pike -e 'string s=Stdio.stdin->read(); Standards.JSON.decode(s); write("ok\n");' \
+     2>/dev/null | grep -q ok; then
+  ok "--json emits valid JSON"
+else
+  bad "--json emits valid JSON"
 fi
 echo
 

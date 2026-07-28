@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-31%2F31_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-38%2F38_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -62,6 +62,39 @@ For Claude specifically, `npx skills add TheSmuks/pike-agent-skills` also works.
 These cover **workflow**. For Pike syntax, types, and standard-library semantics, pair
 them with a language reference skill — that ground is deliberately not repeated here.
 
+## Tool: trace a chain to its sources
+
+```bash
+pike -M . tools/pike-resolve.pike Leaf.pike
+```
+
+```
+# runtime inherit chain (authoritative)
+Leaf.pike
+    Middle.pike
+      Base.pike
+      Lib.pmod/Mixin.pike
+
+# static inherit chain (as written in source)
+Leaf.pike
+  inherit "Middle" -> Middle.pike
+      inherit "Base" -> Base.pike
+      inherit Lib.Mixin -> Lib.pmod/Mixin.pike
+```
+
+Given any `inherit` or `import`, [`tools/pike-resolve.pike`](tools/pike-resolve.pike)
+traces it deterministically to the files it comes from, using Pike's own resolver.
+
+It runs two passes because they see different things: the **runtime** pass compiles the
+target and walks `Program.inherit_tree()` — authoritative, but blind to `import`, which
+leaves no runtime trace. The **static** pass tokenises with `Parser.Pike.split()` and
+resolves each name as written, so it sees imports *and* still works on code that does not
+compile.
+
+Installed modules are marked and not descended into (one stdlib import otherwise pulls in
+the whole runtime's tree). Unresolved references exit non-zero — usually a missing `-M`
+root. `--json` for machine-readable output.
+
 ## Three things Pike tooling usually gets wrong
 
 **A `.pmod` directory is a module because of its extension.** `module.pmod` is optional —
@@ -93,7 +126,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 31   failed: 0
+passed: 38   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are
