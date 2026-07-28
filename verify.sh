@@ -225,6 +225,55 @@ COL=$(cd "$TMP/res" && pike "$CHK" --color Bad.pike 2>&1)
 case "$COL" in *"$ESC"*) ok "--color emits colour" ;;
                *) bad "--color emits colour" ;; esac
 
+# The Roxen delegation path: pike-check must hand Roxen-flagged files to the
+# install's own ./start --program, and attribute errors the child reports.
+# This exercises our integration; whether a given Roxen compiles your code is
+# that install's business.
+mkdir -p "$TMP/rox/lib" "$TMP/rox/server"
+cat > "$TMP/rox/server/start" <<'EOS'
+#!/bin/sh
+[ "$1" = "--program" ] || { echo "unsupported: $*" >&2; exit 64; }
+shift
+exec pike "$@"
+EOS
+chmod +x "$TMP/rox/server/start"
+touch "$TMP/rox/lib/master.pike"
+
+printf 'int main(){ RequestID id; return 0; }\n'                > "$TMP/res/RoxOk.pike"
+printf 'int main(){ RequestID id; nope_missing(); return 0; }\n' > "$TMP/res/RoxBad.pike"
+
+DOUT=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/rox" --no-color RoxOk.pike 2>&1)
+case "$DOUT" in *"checked inside Roxen"*)
+  ok "Roxen-flagged files are delegated to the install" ;; *)
+  bad "Roxen files are delegated" "$(printf '%s' "$DOUT" | head -1)" ;; esac
+
+DBAD=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/rox" --no-color RoxBad.pike 2>&1)
+case "$DBAD" in *RoxBad.pike:*nope_missing*)
+  ok "errors from the delegated compile are attributed to the file" ;; *)
+  bad "delegated errors are attributed" "$(printf '%s' "$DBAD" | head -2)" ;; esac
+
+# A source checkout (no bundled Pike) must be reported, not silently trusted.
+mkdir -p "$TMP/roxsrc/server"; cp "$TMP/rox/server/start" "$TMP/roxsrc/server/start"
+SOUT=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/roxsrc" --no-color RoxOk.pike 2>&1)
+case "$SOUT" in *"source checkout, not an install"*)
+  ok "a source checkout is called out rather than trusted" ;; *)
+  bad "source checkout is called out" ;; esac
+
+# The remembered Roxen path must be honoured without re-asking, and the prompt
+# must never fire when stdin is not a terminal (CI would hang).
+mkdir -p "$TMP/cfg/pike-agent-skills"
+printf '%s\n' "$TMP/rox" > "$TMP/cfg/pike-agent-skills/roxen-path"
+SAVED=$(cd "$TMP/res" && XDG_CONFIG_HOME="$TMP/cfg" pike "$CHK" --no-color RoxOk.pike 2>&1)
+case "$SAVED" in *"checked inside Roxen"*)
+  ok "a remembered Roxen path is used without re-asking" ;; *)
+  bad "remembered Roxen path is used" "$(printf '%s' "$SAVED" | head -1)" ;; esac
+
+mkdir -p "$TMP/cfgempty"
+NOPROMPT=$(cd "$TMP/res" && XDG_CONFIG_HOME="$TMP/cfgempty" pike "$CHK" --no-color RoxOk.pike </dev/null 2>&1)
+case "$NOPROMPT" in *"no Roxen install was found"*)
+  bad "no prompt when stdin is not a terminal" "it prompted" ;; *)
+  ok "no prompt when stdin is not a terminal" ;; esac
+
 # warnings must not fail an otherwise-correct file
 printf 'int main(){ mixed x = 1; string s = x; return 0; }\n' > "$TMP/res/Warn.pike"
 WOUT=$(cd "$TMP/res" && pike "$CHK" Warn.pike 2>&1); WRC=$?
