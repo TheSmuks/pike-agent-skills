@@ -1,0 +1,24 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pike
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pike8.0 m4
+
+      - name: Show Pike paths
+        run: pike --show-paths
+
+      - name: Verify documented commands
+        run: ./verify.sh

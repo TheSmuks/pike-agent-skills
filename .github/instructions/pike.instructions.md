@@ -1,0 +1,68 @@
+---
+applyTo: "**/*.pike,**/*.pmod,**/*.cmod,**/testsuite,**/testsuite.in"
+---
+
+# Pike Working Rules
+
+Automatically applied by GitHub Copilot when editing Pike files. These are the
+high-frequency correctness rules; the full skills live in `skills/`.
+
+## Module layout
+
+- A `.pmod` **directory is a module because of its extension.** `module.pmod` is optional
+  and only adds the module's own symbols. Do not treat it as a required marker — most of
+  the Pike stdlib has none (`Protocols.pmod` does not, `Crypto.pmod` does).
+- `Foo.pike` → instantiable program (`Foo()`). `Foo.pmod` (file or directory) → module
+  namespace (`Foo.fn()`). Nested `.pmod` directories build dotted names.
+- Module names resolve against module-path roots, not relative to the calling file. Use
+  `pike -M <dir>` or `PIKE_MODULE_PATH`. Check with `pike --show-paths`.
+
+## Testing
+
+- Tests live **beside the module** they test, as `testsuite.in` — matching Pike's own
+  stdlib layout.
+- `testsuite.in` is **m4 source.** Expand it before running:
+  ```sh
+  MKTS="$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite"
+  "$MKTS" testsuite.in > testsuite && pike -x test_pike testsuite
+  ```
+- **Never run `pike -x test_pike testsuite.in` directly.** It does not expand the file, runs
+  nothing, prints `Total tests: 0`, and exits `0`. Always confirm a non-zero test count.
+- m4 unavailable? Write the expanded `testsuite` file directly — header line, `mixed a()`
+  / `mixed b()`, then `....`
+- Using `Tools.Testsuite.report_result()` in a plain script? It does **not** set the exit
+  code. Add `return fail ? 1 : 0;`.
+
+## Naming
+
+Pike uses different casing per role. This is idiomatic — never normalise a Pike project to
+one project-wide style.
+
+| Role | Convention |
+|------|-----------|
+| Functions, variables | `snake_case` |
+| Programs, modules | `CamelCase` |
+| Program files | `UpperCamel.pike` |
+| Module files | `lower-case.pmod` |
+| Constants | `UPPER_CASE` |
+
+## Verify, don't recall
+
+Before writing code against an API, ask the runtime:
+
+```sh
+pike -e 'write("%O\n", undefinedp(master()->resolv("Standards.JSON")));'  # 0 = exists
+pike -e 'write("%O\n", _typeof(Stdio.File()->read));'                    # real signature
+pike -e 'write("%O\n", Program.defined(Stdio.File));'                    # file:line
+```
+
+## Documentation
+
+`//!` autodoc directly above the declaration, with no blank line between. Tags:
+`@param`, `@returns`, `@throws`, `@seealso`, `@example`, `@[Symbol]` for cross-references.
+
+## Build
+
+Pure Pike needs no build step — files compile on load. Only `.cmod` C sources require
+one: `pike -x precompile` produces `.c`, then a **C compiler, `make`, and autotools**
+produce the `.so`. That second half is not Pike tooling.
