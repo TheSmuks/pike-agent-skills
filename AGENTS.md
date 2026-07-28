@@ -63,16 +63,18 @@ pike -e 'write("%O\n", Program.defined(Stdio.File));'                    # file:
 
 ## Roxen codebases
 
-- **Roxen sources are ISO-8859-1.** Plain `grep` in a UTF-8 locale treats them as binary
-  and reports *no matches* while exiting `1` — 144 of Roxen's 170 module files are
-  affected, undercounting searches by ~80%. Always use `grep -a`, `LC_ALL=C grep`, or
-  `rg --text`. This silently produces confident, wrong conclusions.
+- Roxen sources are **ISO-8859-1**. `grep` and `ripgrep` read them fine; preserve the
+  encoding when editing rather than rewriting files as UTF-8.
 - Identify a Roxen module by `constant module_type = MODULE_…;` (134/170 files), not by
   filename. The inherit form is `inherit "module";` — **not** `inherit "module.pike"`,
   which appears in 1 of 170 files.
-- `.inc` and `.rjs` are **not** Roxen concepts (zero `.rjs` references in Roxen 6.3 or
-  8.3.806). Their meaning is project-specific — find the module that claims the extension
-  rather than assuming.
+- `module_type` is a **bitfield** — a module can be `MODULE_LOCATION | MODULE_TAG`. Read
+  every bit before deciding what a module does.
+- RXML tag classes **must be named `Tag*`**. `query_tag_set()` finds them with
+  `glob("Tag*", …)`; a class named `GreetTag` is silently skipped and the tag simply never
+  exists. Register non-conforming classes with an explicit `RXML.TagSet(...)`.
+- `find_file(path, id)` returns `0` for "not mine", otherwise a response mapping from
+  `Roxen.http_string_answer()` / `http_low_answer()` / `http_status()` / `http_redirect()`.
 
 ## Build
 

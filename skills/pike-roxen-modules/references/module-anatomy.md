@@ -2,19 +2,11 @@
 
 Verified against Roxen `6.3` and `8.3.806`.
 
-## Searching a Roxen tree
+## File encoding
 
-Roxen sources are ISO-8859-1. Plain `grep` treats most of them as binary and reports
-nothing while exiting `1`. Use one of:
-
-```bash
-grep -a  -rn 'constant module_type' .
-LC_ALL=C grep -rn 'constant module_type' .
-rg --text 'constant module_type' .
-```
-
-Verified on `server/modules/filesystems/filesystem.pike`: `grep -c inherit` finds nothing
-(exit 1); `grep -a -c inherit` finds 3.
+Roxen sources are ISO-8859-1 (latin-1 `©` in the copyright header). GNU `grep` and
+`ripgrep` search them correctly with no special flags. Preserve the encoding when editing
+— rewriting a file as UTF-8 changes those bytes. Confirm with `file <path>`.
 
 ## Real module header
 
@@ -173,18 +165,80 @@ TYPE_TEXT_FIELD  TYPE_FONT  TYPE_FLOAT  TYPE_MODULE  TYPE_CUSTOM
 To find the module owning a path, search for its mount point:
 
 ```bash
-grep -a -rn 'query_location\|defvar("mountpoint"' --include='*.pike' .
+grep -rn 'query_location\|defvar("mountpoint"' --include='*.pike' .
 ```
 
-## Unknown extensions
+## RXML tag skeleton
 
-Roxen has no built-in table mapping arbitrary extensions to behaviour. A
-`MODULE_FILE_EXTENSION` module can claim extensions via `query_file_extensions()` and
-`handle_file_extension()`; `configuration.pike` builds the extension → handler map from
-those. **No module bundled with Roxen implements that hook**, so any hit is custom code.
+```pike
+#include <module.h>
+inherit "module";
 
-```bash
-grep -a -rn 'query_file_extensions\|handle_file_extension' --include='*.pike' .
+constant module_type = MODULE_TAG;
+constant module_name = "My Tags";
+
+class TagGreet {                        // MUST be named Tag*
+  inherit RXML.Tag;
+  constant name = "greet";              // <greet name="..."/>
+  constant flags = RXML.FLAG_EMPTY_ELEMENT;
+
+  class Frame {
+    inherit RXML.Frame;
+
+    array do_return(RequestID id) {
+      CACHE(60);                        // cacheable for 60s
+      result = "Hello, " + (args->name || "world");
+      return 0;
+    }
+  }
+}
 ```
 
-If nothing claims the extension and no content-type rule matches, the file is served as-is.
+Inside `Frame`:
+
+| Name | What it is |
+|------|-----------|
+| `args` | mapping of the tag's attributes |
+| `content` | the tag body (for non-empty elements) |
+| `result` | assign to produce output |
+| `id` | the `RequestID` passed to `do_return` |
+
+Drop `FLAG_EMPTY_ELEMENT` for a container tag `<greet>…</greet>`, and read `content`.
+
+### Tag discovery
+
+`query_tag_set()` (`server/base_server/module.pike`) does:
+
+```pike
+filter(rows(this_object(), glob("Tag*", indices(this_object()))), …)
+```
+
+then keeps entries whose `is_RXML_Tag` is true. Consequences:
+
+- A tag class **not** named `Tag*` is silently skipped — no warning, the tag just does not
+  exist. This is the most common reason a newly written tag "does nothing".
+- To register such a class anyway, construct a tag set explicitly:
+  ```pike
+  RXML.TagSet(this_module(), "_user_tag", ({ UserTagContents() }));
+  ```
+  `server/modules/tags/rxmltags.pike` does this for its `IfIs` and `UserTagContents`
+  classes.
+
+## Request tracing
+
+```pike
+#include <request_trace.h>
+```
+
+`TRACE_ENTER` / `TRACE_LEAVE` add entries to the per-request trace. With request tracing
+enabled, that trace shows every module that touched the request and in what order — the
+quickest way to answer "why did this URL return that?".
+
+Logging, by usage across the bundled modules:
+
+```pike
+report_debug("...");     // 53
+report_error("...");     // 45
+report_warning("...");   // 28
+report_notice("...");    // 19
+```
