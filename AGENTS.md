@@ -21,7 +21,9 @@ Verified against Pike 8.0.1116; run `./verify.sh` to re-check them against your 
   stdlib layout.
 - `testsuite.in` is **m4 source.** Expand it before running:
   ```sh
-  MKTS="$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite"
+  # mktestsuite ships inside the Pike install, but distros disagree on where.
+MKTS=$(ls "$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite" \
+         /usr/include/pike*/pike/mktestsuite 2>/dev/null | head -1)
   "$MKTS" testsuite.in > testsuite && pike -x test_pike testsuite
   ```
 - **Never run `pike -x test_pike testsuite.in` directly.** It does not expand the file, runs
@@ -58,6 +60,19 @@ pike -e 'write("%O\n", Program.defined(Stdio.File));'                    # file:
 
 `//!` autodoc directly above the declaration, with no blank line between. Tags:
 `@param`, `@returns`, `@throws`, `@seealso`, `@example`, `@[Symbol]` for cross-references.
+
+## Roxen codebases
+
+- **Roxen sources are ISO-8859-1.** Plain `grep` in a UTF-8 locale treats them as binary
+  and reports *no matches* while exiting `1` — 144 of Roxen's 170 module files are
+  affected, undercounting searches by ~80%. Always use `grep -a`, `LC_ALL=C grep`, or
+  `rg --text`. This silently produces confident, wrong conclusions.
+- Identify a Roxen module by `constant module_type = MODULE_…;` (134/170 files), not by
+  filename. The inherit form is `inherit "module";` — **not** `inherit "module.pike"`,
+  which appears in 1 of 170 files.
+- `.inc` and `.rjs` are **not** Roxen concepts (zero `.rjs` references in Roxen 6.3 or
+  8.3.806). Their meaning is project-specific — find the module that claims the extension
+  rather than assuming.
 
 ## Build
 

@@ -48,20 +48,25 @@ Do not centralize Pike tests in one `tests/` directory unless the project alread
 ## Path 1 — Canonical (needs m4)
 
 ```bash
-# expand, then run
-/usr/local/pike/8.0.1116/include/pike/mktestsuite testsuite.in > testsuite
+# expand, then run  (see the portable locator below for $MKTS)
+"$MKTS" testsuite.in > testsuite
 pike -x test_pike testsuite
 ```
 
-`mktestsuite` ships inside the Pike installation at `<prefix>/include/pike/mktestsuite`.
-Locate it portably:
+`mktestsuite` ships inside the Pike installation, but **the location differs by
+distribution** — a source install puts it at `<prefix>/include/pike/`, while Debian and
+Ubuntu use `/usr/include/pike<version>/pike/`. Locate it portably rather than hard-coding
+either:
 
 ```bash
-MKTS="$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite"
+# mktestsuite ships inside the Pike install, but distros disagree on where.
+MKTS=$(ls "$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite" \
+         /usr/include/pike*/pike/mktestsuite 2>/dev/null | head -1)
 ```
 
 Note this is **not** the path `pike --show-paths` reports as "Include path" (that is
-`lib/include`, for `#include` files). `mktestsuite` lives under `include/pike/`.
+`lib/include`, for `#include` files) — `mktestsuite` lives under `include/pike/`, and on
+Debian/Ubuntu under a version-qualified directory such as `/usr/include/pike8.0/pike/`.
 
 Writing `testsuite.in`:
 
@@ -144,7 +149,8 @@ Output: `WD succeeded 2 failed 0 skipped 0`
 ```yaml
 - name: Test
   run: |
-    MKTS="$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite"
+    MKTS=$(ls "$(dirname "$(readlink -f "$(which pike)")")/../include/pike/mktestsuite" \
+             /usr/include/pike*/pike/mktestsuite 2>/dev/null | head -1)
     "$MKTS" testsuite.in > testsuite
     pike -x test_pike testsuite | tee out.txt
     grep -q "Total tests: 0" out.txt && { echo "No tests ran"; exit 1; } || true
