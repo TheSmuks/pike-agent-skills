@@ -1,7 +1,3 @@
----
-applyTo: "**/*.pike,**/*.pmod,**/*.cmod,**/testsuite,**/testsuite.in"
----
-
 # Pike Working Rules
 
 High-frequency correctness rules for working in Pike, in a format any coding agent can
