@@ -58,7 +58,7 @@ copilot skill add /path/to/pike-agent-skills/skills     # registers the director
 | `copilot skill add <url>` | **lost** — only `SKILL.md` is materialised |
 
 Verified: a URL install produced `~/.copilot/skills/pike-module-layout/SKILL.md` and
-nothing else, so the skill would tell the agent to run a `pike-resolve.pike` that is not
+nothing else, so the skill would tell the agent to run a `pike-check.pike` that is not
 there. Use the directory form, or `install.sh`.
 
 If your `gh` is recent enough to have the `skill` command, that is GitHub's own installer
@@ -75,7 +75,6 @@ The tools ship **inside** the skills that document them, so they arrive with the
 and need no separate step:
 
 ```
-skills/pike-module-layout/pike-resolve.pike     trace inherit/import/include chains
 skills/pike-build-and-docs/pike-check.pike      compile-check a file or a whole tree
 ```
 
@@ -198,42 +197,35 @@ Exit status distinguishes the three outcomes: `0` clean, `1` real errors in your
 `2` compiled but Roxen went unchecked. A pass is never claimed for code that wasn't
 actually checked.
 
-## Tool: trace a chain to its sources
+## Resolving a name to its source
+
+The skill teaches one-liners rather than shipping a resolver. Agents reach for
+`pike -e` over invoking a script, and a script that assumes too much is worse than none.
 
 ```bash
-pike -M . tools/pike-resolve.pike Leaf.pike
+pike -e 'write("%O\n", Program.defined(Stdio.File));'
+# "/usr/local/pike/8.0.1116/lib/modules/Stdio.pmod/module.pmod:181"
 ```
 
-```
-# runtime inherit chain (authoritative)
-Leaf.pike
-    Middle.pike
-      Base.pike
-      Lib.pmod/Mixin.pike
+A filesystem walk stops at the enclosing module, so it cannot tell `Stdio.File` from
+`Stdio.Buffer`, and reports every C-implemented symbol as missing. `Program.defined()`
+gives `file:line` for the class itself.
 
-# static inherit chain (as written in source)
-Leaf.pike
-  inherit "Middle" -> Middle.pike
-      inherit "Base" -> Base.pike
-      inherit Lib.Mixin -> Lib.pmod/Mixin.pike
+The trap worth knowing: a name that arrived through an `import` does not resolve bare.
+
+```pike
+import A;
+int f() { return B()->x(); }        // B is A.B
 ```
 
-Given any `inherit` or `import`, [`tools/pike-resolve.pike`](tools/pike-resolve.pike)
-traces it deterministically to the files it comes from, using Pike's own resolver.
+```bash
+pike -M . -e 'write("%O\n", undefinedp(master()->resolv("B")));'    # 1 — undefined
+pike -M . -e 'write("%O\n", Program.defined(master()->resolv("A.B")));'
+```
 
-It runs two passes because they see different things: the **runtime** pass compiles the
-target and walks `Program.inherit_tree()` — authoritative, but blind to `import`, which
-leaves no runtime trace. The **static** pass tokenises with `Parser.Pike.split()` and
-resolves each name as written, so it sees imports *and* still works on code that does not
-compile.
-
-It traces `#include` too, and `--roxen=<dir>` resolves `Roxen.*`, `RXML.*` and
-`<module.h>` against a Roxen tree — resolution is a file lookup, so that works without
-booting the runtime.
-
-Installed modules are marked and not descended into (one stdlib import otherwise pulls in
-the whole runtime's tree). Unresolved references exit non-zero — usually a missing `-M`
-root. `--json` for machine-readable output.
+Resolve the bare name and you conclude the module is missing while the code compiles
+fine. Read the file's `import`/`inherit` lines and retry qualified. `verify.sh` checks
+every one of these commands against the real Pike.
 
 ## Three things Pike tooling usually gets wrong
 

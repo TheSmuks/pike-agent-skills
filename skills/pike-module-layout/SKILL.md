@@ -100,89 +100,90 @@ path root, not to the current file. `MyLib.Net` requires a `MyLib.pmod` reachabl
 path root — being in the same directory as the caller is not enough unless that
 directory is on the path.
 
-## Tracing a Chain to Its Sources
+## Resolving a Name to Its Source
 
-`pike-resolve.pike` answers "where does this actually come from?" deterministically,
-using Pike's own resolver rather than guessing from filenames.
+Ask the running Pike, never the filesystem alone. Every command below is a one-liner —
+verified against Pike 8.0.1116, and each answers a question a file search gets wrong.
 
-**The tool ships beside this `SKILL.md`, not in your project** — a bare
-`pike-resolve.pike` will not resolve from the workspace root. Locate it once, then use
-`$RESOLVE` everywhere below:
+**Always check the search roots first.** It costs nothing and needs no compilation:
 
 ```bash
-RESOLVE=$(find .github/skills ~/.copilot/skills ~/.claude/skills ~/.agents/skills \
-            -name pike-resolve.pike 2>/dev/null | head -1)
-
-pike -M . "$RESOLVE" Leaf.pike
+pike --show-paths          # Module path / Include path / Program path
 ```
 
-```
-# runtime inherit chain (authoritative)
-Leaf.pike
-    Middle.pike
-      Base.pike
-      Lib.pmod/Mixin.pike
+### A class inside a module
 
-# static inherit chain (as written in source)
-Leaf.pike
-  inherit "Middle" -> Middle.pike
-      inherit "Base" -> Base.pike
-      inherit Lib.Mixin -> Lib.pmod/Mixin.pike
-```
-
-
-> **If `pike-resolve.pike` is not next to this file**, the skill was installed by a method
-> that copies only `SKILL.md` — `copilot skill add <url>` does this. Register the
-> skills directory instead (`copilot skill add <dir>`), or use the repo's
-> `install.sh`. Everything else in this skill works without the tool.
-
-Two passes, because they see different things:
-
-| Pass | How | Sees |
-|------|-----|------|
-| **runtime** | compiles the target, walks `Program.inherit_tree()`, reports `Program.defined()` | exactly what Pike loaded — authoritative, but **inherits only** |
-| **static** | tokenises with `Parser.Pike.split()`, resolves each name as written | inherits **and imports**, and works on code that does not compile |
-
-`import` leaves no runtime trace, so the static pass is the only way to see it. Use
-`--imports` to follow imports transitively.
+`Program.defined()` reports `file:line` for the class itself. A filesystem walk cannot —
+it stops at the enclosing module, so it cannot tell two classes in one module apart:
 
 ```bash
-pike -M . "$RESOLVE" --imports Foo.pike          # include imports
-pike -M . "$RESOLVE" --roxen=/opt/roxen M.pike   # resolve Roxen + <module.h>
-pike -M . "$RESOLVE" --static Broken.pike        # target does not compile
-pike -M . "$RESOLVE" --json Foo.pike             # machine-readable
-pike "$RESOLVE" Standards.JSON                   # a module, not a file
+pike -e 'write("%O\n", Program.defined(Stdio.File));'
+# "/usr/local/pike/8.0.1116/lib/modules/Stdio.pmod/module.pmod:181"
+
+pike -e 'write("%O\n", Program.defined(Stdio.Buffer));'
+# "Users/hww3/devel/pike/src/modules/_Stdio/buffer.cmod:79"
 ```
 
-Installed modules are marked `[installed module]` and **not** descended into — otherwise
-one stdlib import drags in the entire runtime's inherit tree. Pass `--system` to descend
-anyway.
+Both live in `Stdio`; only this tells them apart. It is also the only way to locate a
+symbol implemented in C — those have no file on disk and any path search calls them
+missing.
 
-Unresolved references are reported and exit non-zero. That usually means a module-path
-root is missing — add it with `-M`.
+### A name that came from an `import` — the common trap
 
-### Finding a class, not just its file
+```pike
+import A;
+int f() { return B()->x(); }
+```
 
-A class lives *inside* a file, so a filesystem walk can only ever reach the enclosing
-module. The tool asks Pike's own resolver (`master()->resolv()` + `Program.defined()`)
-first, which reports `file:line` for the class itself:
+`B` is `A.B`. It exists **only inside the imported scope**, so resolving the bare name
+fails and the module looks missing when the code is fine:
 
 ```bash
-pike "$RESOLVE" --static Stdio.File     # → Stdio.pmod/module.pmod:181
-pike "$RESOLVE" --static Stdio.Buffer   # → src/modules/_Stdio/buffer.cmod:79
+pike -M . -e 'write("%O\n", undefinedp(master()->resolv("B")));'   # 1  — undefined!
+pike -M . -e 'write("%O\n", Program.defined(master()->resolv("A.B")));'
+# ".../A.pmod/B.pike"
 ```
 
-Without it both collapse to `Stdio.pmod/module.pmod` — the file lookup cannot tell them
-apart. The same technique is the only way to locate a symbol implemented in C
-(`_Stdio.Fd` → `src/modules/_Stdio/file.c:6331`); those have no file on disk and a pure
-file lookup reports them as unresolved.
+**So when a bare name will not resolve, read the file's `import` and `inherit` lines
+first and retry qualified.** List what a scope actually provides with `indices()`:
 
-Where the file lookup landed on the enclosing module instead, the output says so:
-`(file lookup stopped at …)`. A bare name resolved through one of the file's own
-inherits is marked `(via _Stdio)`.
+```bash
+grep -nE '^[[:space:]]*(import|inherit)' User.pike
+pike -M . -e 'write("%O\n", indices(master()->resolv("A")));'   # ({"Consts","C","B"})
+```
 
-`--no-compile` restores pure file lookup — faster, and useful when you do not want the
-target's dependencies compiled at all, but it cannot find classes or C-defined symbols.
+The same applies to a bare name inside a module's own file: `Stdio.pmod/module.pmod`
+says `inherit Fd;`, and `Fd` only resolves as `_Stdio.Fd` — because that file also does
+`inherit _Stdio;`.
+
+### Where `Program.defined()` lies
+
+A **directory module** resolves to a dirnode object supplied by the master, so
+`object_program()` is master's internal class:
+
+```bash
+pike -M . -e 'write("%O\n", Program.defined(object_program(master()->resolv("A"))));'
+# "/usr/local/pike/8.0.1116/lib/master.pike:2364"   ← master.pike, not A.pmod
+```
+
+If the answer is `master.pike`, you asked about a directory module. Its source *is* the
+directory — find it on the module path, and use `indices()` to see inside.
+
+### `Scope::Name` is not a module path
+
+`inherit YMD::cYear;` in `Calendar.pmod/Gregorian.pmod` refers to a **named inherit**
+(`inherit Calendar.YMD:YMD;` earlier in the same file), not to a module called `YMD`.
+`resolv("YMD::cYear")` will never work. Before hunting a missing `-M` root, check the
+same file for a matching `inherit X:Name;` alias.
+
+### Confirm what actually loaded
+
+```bash
+pike -M . -e 'write("%O\n", Program.all_inherits((program)"/abs/path/Leaf.pike"));'
+```
+
+Cast an **absolute** path: a relative cast resolves against the *casting file's*
+directory, not the cwd.
 
 ### Two resolution rules the tool encodes
 
@@ -247,7 +248,5 @@ Never "fix" a Pike project to a single project-wide case style.
 
 ## Reference
 
-- `pike-resolve.pike` — trace inherit/import/include chains to source files, and locate
-  a class or C-defined symbol at `file:line`
 - To check that code *compiles*, see `pike-check.pike` in the `pike-build-and-docs` skill
 - `references/resolution.md` — resolution rules with verified worked examples
