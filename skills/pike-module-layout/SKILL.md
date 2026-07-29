@@ -105,8 +105,15 @@ directory is on the path.
 `pike-resolve.pike` answers "where does this actually come from?" deterministically,
 using Pike's own resolver rather than guessing from filenames.
 
+**The tool ships beside this `SKILL.md`, not in your project** — a bare
+`pike-resolve.pike` will not resolve from the workspace root. Locate it once, then use
+`$RESOLVE` everywhere below:
+
 ```bash
-pike -M . pike-resolve.pike Leaf.pike
+RESOLVE=$(find .github/skills ~/.copilot/skills ~/.claude/skills ~/.agents/skills \
+            -name pike-resolve.pike 2>/dev/null | head -1)
+
+pike -M . "$RESOLVE" Leaf.pike
 ```
 
 ```
@@ -140,11 +147,11 @@ Two passes, because they see different things:
 `--imports` to follow imports transitively.
 
 ```bash
-pike -M . pike-resolve.pike --imports Foo.pike   # include imports
-pike -M . pike-resolve.pike --roxen=/opt/roxen M.pike  # resolve Roxen + <module.h>
-pike -M . pike-resolve.pike --static Broken.pike # target does not compile
-pike -M . pike-resolve.pike --json Foo.pike      # machine-readable
-pike pike-resolve.pike Standards.JSON            # a module, not a file
+pike -M . "$RESOLVE" --imports Foo.pike          # include imports
+pike -M . "$RESOLVE" --roxen=/opt/roxen M.pike   # resolve Roxen + <module.h>
+pike -M . "$RESOLVE" --static Broken.pike        # target does not compile
+pike -M . "$RESOLVE" --json Foo.pike             # machine-readable
+pike "$RESOLVE" Standards.JSON                   # a module, not a file
 ```
 
 Installed modules are marked `[installed module]` and **not** descended into — otherwise
@@ -153,6 +160,29 @@ anyway.
 
 Unresolved references are reported and exit non-zero. That usually means a module-path
 root is missing — add it with `-M`.
+
+### Finding a class, not just its file
+
+A class lives *inside* a file, so a filesystem walk can only ever reach the enclosing
+module. The tool asks Pike's own resolver (`master()->resolv()` + `Program.defined()`)
+first, which reports `file:line` for the class itself:
+
+```bash
+pike "$RESOLVE" --static Stdio.File     # → Stdio.pmod/module.pmod:181
+pike "$RESOLVE" --static Stdio.Buffer   # → src/modules/_Stdio/buffer.cmod:79
+```
+
+Without it both collapse to `Stdio.pmod/module.pmod` — the file lookup cannot tell them
+apart. The same technique is the only way to locate a symbol implemented in C
+(`_Stdio.Fd` → `src/modules/_Stdio/file.c:6331`); those have no file on disk and a pure
+file lookup reports them as unresolved.
+
+Where the file lookup landed on the enclosing module instead, the output says so:
+`(file lookup stopped at …)`. A bare name resolved through one of the file's own
+inherits is marked `(via _Stdio)`.
+
+`--no-compile` restores pure file lookup — faster, and useful when you do not want the
+target's dependencies compiled at all, but it cannot find classes or C-defined symbols.
 
 ### Two resolution rules the tool encodes
 
@@ -209,11 +239,15 @@ Never "fix" a Pike project to a single project-wide case style.
 - [ ] `.pmod` for namespaces, `.pike` for instantiable programs
 - [ ] Directory modules end in `.pmod` — do not add `module.pmod` unless the module needs
       its own symbols
+- [ ] Checked the search roots with `pike --show-paths` **first** — it is free and needs
+      no compilation. Only reach for `pike -e` once you know the roots are right
 - [ ] The module root is on the module path (`-M`, `PIKE_MODULE_PATH`, or installed)
-- [ ] Verified resolution with `pike -e` before assuming a layout works
+- [ ] For a *class*, used `resolv()`/`Program.defined()` — a file walk stops at the
+      enclosing module
 
 ## Reference
 
-- `pike-resolve.pike` — trace inherit/import/include chains to source files
+- `pike-resolve.pike` — trace inherit/import/include chains to source files, and locate
+  a class or C-defined symbol at `file:line`
 - To check that code *compiles*, see `pike-check.pike` in the `pike-build-and-docs` skill
 - `references/resolution.md` — resolution rules with verified worked examples

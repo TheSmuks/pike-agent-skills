@@ -121,6 +121,32 @@ string roxen_dir;
 array(string) extra_M = ({});
 array(string) extra_I = ({});
 
+//! Roots handed to each child compiler, absolute, snapshotted before any file
+//! is compiled. See @[snapshot_child_paths].
+array(string) child_M = ({});
+array(string) child_I = ({});
+
+//! Capture the module/include path the child compilers must see.
+//!
+//! Forwarding @[extra_M] alone is not enough: `-M` on the *outer* pike
+//! (`pike -M . pike-check.pike .`, which is how the skill documents it) is
+//! consumed by that pike and never reaches our argv, so the project's own
+//! roots were silently dropped and every project module reported "Undefined
+//! identifier". `PIKE_MODULE_PATH` was lost the same way. Reading the resolved
+//! path covers all three sources at once.
+//!
+//! Absolute, because @[compile_here] runs the child with its cwd set to the
+//! file's own directory — a relative root like `.` would otherwise resolve
+//! against the wrong directory.
+void snapshot_child_paths()
+{
+  string cwd = getcwd();
+  child_M = map(master()->pike_module_path,
+                lambda(string d) { return combine_path(cwd, d); });
+  child_I = map(master()->pike_include_path,
+                lambda(string d) { return combine_path(cwd, d); });
+}
+
 //! Identifiers supplied by the Roxen runtime rather than by Pike. Used to tell
 //! "your code is wrong" from "Roxen was not available to check against".
 multiset(string) roxen_symbols = (<
@@ -343,8 +369,8 @@ string compile_here(string file)
     abs, abs);
 
   array(string) cmd = ({ "pike" });
-  foreach (extra_M, string d) cmd += ({ "-M", d });
-  foreach (extra_I, string d) cmd += ({ "-I", d });
+  foreach (child_M, string d) cmd += ({ "-M", d });
+  foreach (child_I, string d) cmd += ({ "-I", d });
   cmd += ({ "-e", snippet });
 
   mapping res = Process.run(cmd, ([ "cwd": dirname(abs) ]));
@@ -481,6 +507,7 @@ never silently accepted.
 
   foreach (extra_M, string d) master()->add_module_path(d);
   foreach (extra_I, string d) master()->add_include_path(d);
+  snapshot_child_paths();
 
   string rdir = find_roxen();
 

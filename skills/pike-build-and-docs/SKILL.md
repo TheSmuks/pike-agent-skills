@@ -181,9 +181,15 @@ so an empty `build/` is the failure mode to watch for.
 imports and includes — and reports every error with `file:line:col`, which editors and
 terminals turn into a clickable link.
 
+**The tool ships beside this `SKILL.md`, not in your project** — a bare `pike-check.pike`
+will not resolve from the workspace root. Locate it once, then use `$CHECK`:
+
 ```bash
-pike pike-check.pike src/                    # a whole tree, recursively
-pike pike-check.pike --roxen=/opt/roxen m.pike
+CHECK=$(find .github/skills ~/.copilot/skills ~/.claude/skills ~/.agents/skills \
+          -name pike-check.pike 2>/dev/null | head -1)
+
+pike "$CHECK" src/                           # a whole tree, recursively
+pike "$CHECK" --roxen=/opt/roxen m.pike
 ```
 
 
