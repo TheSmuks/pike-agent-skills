@@ -240,9 +240,28 @@ unexpanded `testsuite.in`: exit 0, and no work done.
 
 `Roxen.pmod` and `RXML.pmod` need a running Roxen, so a plain `compile_file()` on a Roxen
 module reports `Undefined identifier MODULE_LOCATION` no matter what you put on the module
-path. That is not a defect in the module. Use the installation's own
-`./start --program` to get Roxen's Pike, module path and include path, and treat anything
-else as unverified rather than broken.
+path. That is not a defect in the module.
+
+`./start --program` is **not** the way around it. It supplies Roxen's Pike, module path
+and include path, but it *replaces* `roxenloader` rather than running after it, so the
+runtime is never booted. Measured against a real Roxen 6 tree, a module as small as
+
+```pike
+#include <module.h>
+inherit "module";
+constant module_type = MODULE_LOCATION;
+```
+
+still fails under `--program`, because `inherit "module"` pulls in `module.pike`, which
+pulls in `DBManager.pmod`, which needs the booted server:
+
+```
+etc/modules/DBManager.pmod:79: Calling a void expression.
+base_server/rxmod.pike:2: Error finding program
+```
+
+So **treat Roxen modules as unverified, not broken.** Verifying one means loading it into
+a running Roxen. See the `roxen-modules` skill for the install layout and how to do that.
 
 ## Checklist
 
