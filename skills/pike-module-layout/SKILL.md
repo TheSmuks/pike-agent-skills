@@ -248,5 +248,5 @@ Never "fix" a Pike project to a single project-wide case style.
 
 ## Reference
 
-- To check that code *compiles*, see `pike-check.pike` in the `pike-build-and-docs` skill
+- To check that code *compiles*, see the `pike-build-and-docs` skill
 - `references/resolution.md` — resolution rules with verified worked examples

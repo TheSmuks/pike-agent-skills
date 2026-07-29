@@ -174,144 +174,55 @@ case "$PATHS" in *"Module path"*)
   ok "pike --show-paths reports the search roots" ;; *)
   bad "pike --show-paths reports the search roots" ;; esac
 echo
-# ------------------------------------------------------------------- check tool
-echo "tools/pike-check"
+# --------------------------------------------------- documented compile checks
+# No tool ships any more, so what must hold is that the commands the skill
+# documents actually behave as documented.
+echo "compile checking"
 
-CHK="$HERE_SKILLS/pike-build-and-docs/pike-check.pike"
-printf 'int main(){ write("hi\\n"); return 0; }\n'      > "$TMP/res/Good.pike"
-printf 'int main(){ nope_not_here(); return 0; }\n'      > "$TMP/res/Bad.pike"
-printf 'int main(){ write(Roxen.html_encode_string("x")); return 0; }\n' > "$TMP/res/Rox.pike"
+mkdir -p "$TMP/cc/Lib.pmod"
+echo 'int a(){ return 1; }'                 > "$TMP/cc/Good.pike"
+echo 'int m(){ return 2; }'                 > "$TMP/cc/Lib.pmod/Mixin.pike"
+echo 'int b(){ return no_such_fn_xyz(); }'  > "$TMP/cc/Broken.pike"
 
-if ( cd "$TMP/res" && pike "$CHK" Good.pike ) >/dev/null 2>&1; then
-  ok "clean file compiles and exits 0"
+( cd "$TMP/cc" && pike -e 'compile_file("Good.pike");' ) >/dev/null 2>&1
+[ $? -eq 0 ] && ok "compile_file() exits 0 on clean code" \
+             || bad "compile_file() exits 0 on clean code"
+
+( cd "$TMP/cc" && pike -e 'compile_file("Broken.pike");' ) >/dev/null 2>&1
+[ $? -ne 0 ] && ok "compile_file() exits non-zero on broken code" \
+             || bad "compile_file() exits non-zero on broken code"
+
+CCERR=$( cd "$TMP/cc" && pike -e 'compile_file("Broken.pike");' 2>&1 )
+case "$CCERR" in *"Broken.pike:1:"*)
+  ok "compile_file() reports file:line" ;; *)
+  bad "compile_file() reports file:line" "$CCERR" ;; esac
+
+# The documented trap: -c is not a Pike flag, so it checks nothing.
+CFLAG=$( cd "$TMP/cc" && pike -c Good.pike 2>&1 )
+case "$CFLAG" in *"Unknown option"*)
+  ok "pike -c is not a compile check (documented trap)" ;; *)
+  bad "pike -c is not a compile check (documented trap)" "$CFLAG" ;; esac
+
+# The other trap: passing a file to pike runs it.
+RUNIT=$( cd "$TMP/cc" && pike Good.pike 2>&1 )
+case "$RUNIT" in *"no main"*)
+  ok "pike <file> runs rather than checks it (documented trap)" ;; *)
+  bad "pike <file> runs rather than checks it (documented trap)" "$RUNIT" ;; esac
+
+# A .pmod DIRECTORY must be excluded, or a tree sweep invents failures.
+DIRERR=$( cd "$TMP/cc" && pike -e 'compile_file("Lib.pmod");' 2>&1 )
+case "$DIRERR" in *"Bad argument 1 to cpp"*)
+  ok "a .pmod directory breaks compile_file (why -type f matters)" ;; *)
+  bad "a .pmod directory breaks compile_file (why -type f matters)" "$DIRERR" ;; esac
+
+NFILES=$( cd "$TMP/cc" && find . -type f \( -name '*.pike' -o -name '*.pmod' \) | wc -l )
+NALL=$( cd "$TMP/cc" && find . \( -name '*.pike' -o -name '*.pmod' \) | wc -l )
+if [ "$NFILES" -lt "$NALL" ]; then
+  ok "-type f excludes .pmod directories from a tree sweep"
 else
-  bad "clean file compiles and exits 0"
+  bad "-type f excludes .pmod directories from a tree sweep" "$NFILES vs $NALL"
 fi
-
-OUT=$(cd "$TMP/res" && pike "$CHK" Bad.pike 2>&1); RC=$?
-case "$OUT" in *"Undefined identifier nope_not_here"*)
-  ok "reports the real error with file:line" ;; *)
-  bad "reports the real error" "$(printf '%s' "$OUT" | head -1)" ;; esac
-[ "$RC" -eq 1 ] && ok "real errors exit 1" || bad "real errors exit 1" "got $RC"
-
-# The important behaviour: unresolvable Roxen must WARN, never pass silently.
-OUT=$(cd "$TMP/res" && env -u ROXEN_DIR pike "$CHK" Rox.pike 2>&1); RC=$?
-case "$OUT" in *"could NOT be verified"*)
-  ok "unresolvable Roxen is reported, not ignored" ;; *)
-  bad "unresolvable Roxen is reported" "$(printf '%s' "$OUT" | head -1)" ;; esac
-case "$OUT" in *"INCOMPLETE"*)
-  ok "does not claim success when Roxen went unchecked" ;; *)
-  bad "does not claim success when Roxen went unchecked" ;; esac
-[ "$RC" -eq 2 ] && ok "unverified Roxen exits 2 (distinct from real errors)" \
-                || bad "unverified Roxen exits 2" "got $RC"
-
-# diagnostics must be clickable: absolute path + line:col
-COUT=$(cd "$TMP/res" && pike "$CHK" --no-color Bad.pike 2>&1)
-case "$COUT" in "$TMP"/res/Bad.pike:*:*:*error:*)
-  ok "diagnostics are clickable absolute file:line:col" ;; *)
-  bad "diagnostics are clickable" "$(printf '%s' "$COUT" | head -1)" ;; esac
-ESC=$(printf '\033')
-case "$COUT" in *"$ESC"*) bad "--no-color emits no escape codes" ;;
-                *) ok "--no-color emits no escape codes" ;; esac
-COL=$(cd "$TMP/res" && pike "$CHK" --color Bad.pike 2>&1)
-case "$COL" in *"$ESC"*) ok "--color emits colour" ;;
-               *) bad "--color emits colour" ;; esac
-
-# The Roxen delegation path: pike-check must hand Roxen-flagged files to the
-# install's own ./start --program, and attribute errors the child reports.
-# This exercises our integration; whether a given Roxen compiles your code is
-# that install's business.
-mkdir -p "$TMP/rox/lib" "$TMP/rox/server"
-cat > "$TMP/rox/server/start" <<'EOS'
-#!/bin/sh
-[ "$1" = "--program" ] || { echo "unsupported: $*" >&2; exit 64; }
-shift
-exec pike "$@"
-EOS
-chmod +x "$TMP/rox/server/start"
-touch "$TMP/rox/lib/master.pike"
-
-printf 'int main(){ RequestID id; return 0; }\n'                > "$TMP/res/RoxOk.pike"
-printf 'int main(){ RequestID id; nope_missing(); return 0; }\n' > "$TMP/res/RoxBad.pike"
-
-DOUT=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/rox" --no-color RoxOk.pike 2>&1)
-case "$DOUT" in *"checked inside Roxen"*)
-  ok "Roxen-flagged files are delegated to the install" ;; *)
-  bad "Roxen files are delegated" "$(printf '%s' "$DOUT" | head -1)" ;; esac
-
-DBAD=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/rox" --no-color RoxBad.pike 2>&1)
-case "$DBAD" in *RoxBad.pike:*nope_missing*)
-  ok "errors from the delegated compile are attributed to the file" ;; *)
-  bad "delegated errors are attributed" "$(printf '%s' "$DBAD" | head -2)" ;; esac
-
-# A source checkout (no bundled Pike) must be reported, not silently trusted.
-mkdir -p "$TMP/roxsrc/server"; cp "$TMP/rox/server/start" "$TMP/roxsrc/server/start"
-SOUT=$(cd "$TMP/res" && pike "$CHK" --roxen="$TMP/roxsrc" --no-color RoxOk.pike 2>&1)
-case "$SOUT" in *"source checkout, not an install"*)
-  ok "a source checkout is called out rather than trusted" ;; *)
-  bad "source checkout is called out" ;; esac
-
-# The remembered Roxen path must be honoured without re-asking, and the prompt
-# must never fire when stdin is not a terminal (CI would hang).
-mkdir -p "$TMP/cfg/pike-agent-skills"
-printf '%s\n' "$TMP/rox" > "$TMP/cfg/pike-agent-skills/roxen-path"
-SAVED=$(cd "$TMP/res" && XDG_CONFIG_HOME="$TMP/cfg" pike "$CHK" --no-color RoxOk.pike 2>&1)
-case "$SAVED" in *"checked inside Roxen"*)
-  ok "a remembered Roxen path is used without re-asking" ;; *)
-  bad "remembered Roxen path is used" "$(printf '%s' "$SAVED" | head -1)" ;; esac
-
-mkdir -p "$TMP/cfgempty"
-NOPROMPT=$(cd "$TMP/res" && XDG_CONFIG_HOME="$TMP/cfgempty" pike "$CHK" --no-color RoxOk.pike </dev/null 2>&1)
-case "$NOPROMPT" in *"no Roxen install was found"*)
-  bad "no prompt when stdin is not a terminal" "it prompted" ;; *)
-  ok "no prompt when stdin is not a terminal" ;; esac
-
-# An undefined type in a signature cascades into structural errors. Verified
-# against Roxen: one undefined Gz at Roxen.pmod:1064 produced dozens. Report the
-# root, hide the consequences unless asked.
-printf 'void f( UnknownType x ) { if (!x) return; }\nint main(){ return 0; }\n' \
-  > "$TMP/res/Casc.pike"
-CASC=$(cd "$TMP/res" && pike "$CHK" --no-color Casc.pike 2>&1)
-case "$CASC" in *"Undefined identifier UnknownType"*)
-  ok "reports the root undefined identifier" ;; *)
-  bad "reports the root undefined identifier" ;; esac
-case "$CASC" in *"follow-on error"*)
-  ok "hides follow-on errors behind a count" ;; *)
-  bad "hides follow-on errors" ;; esac
-case "$CASC" in *"Must return a value"*)
-  bad "cascade errors are hidden by default" "they were shown" ;; *)
-  ok "cascade errors are hidden by default" ;; esac
-ALL=$(cd "$TMP/res" && pike "$CHK" --no-color --all Casc.pike 2>&1)
-case "$ALL" in *"Must return a value"*)
-  ok "--all shows the follow-on errors" ;; *)
-  bad "--all shows the follow-on errors" ;; esac
-
-# warnings must not fail an otherwise-correct file
-printf 'int main(){ mixed x = 1; string s = x; return 0; }\n' > "$TMP/res/Warn.pike"
-WOUT=$(cd "$TMP/res" && pike "$CHK" Warn.pike 2>&1); WRC=$?
-[ "$WRC" -eq 0 ] && ok "compiler warnings do not fail a file" \
-                 || bad "compiler warnings do not fail a file" "exit $WRC"
-
-# directory mode: walk a tree instead of naming each file
-mkdir -p "$TMP/tree/sub"
-printf 'int main(){ return 0; }\n'        > "$TMP/tree/A.pike"
-printf 'string f(){ return "x"; }\n'      > "$TMP/tree/sub/B.pmod"
-printf 'int g(){ return 1; }\n'           > "$TMP/tree/sub/C.pike"
-DOUT=$(pike "$CHK" "$TMP/tree" 2>&1); DRC=$?
-case "$DOUT" in *"3 Pike files"*)
-  ok "directory mode finds files recursively" ;; *)
-  bad "directory mode finds files recursively" "$(printf '%s' "$DOUT" | head -1)" ;; esac
-[ "$DRC" -eq 0 ] && ok "clean directory exits 0" || bad "clean directory exits 0" "got $DRC"
-
-printf 'int main(){ broken_here(); }\n' > "$TMP/tree/sub/D.pike"
-if pike "$CHK" "$TMP/tree" >/dev/null 2>&1; then
-  bad "directory with a broken file exits non-zero" "exited 0"
-else
-  ok "directory with a broken file exits non-zero"
-fi
-rm -f "$TMP/tree/sub/D.pike"
 echo
-
 # ------------------------------------------------------------ runtime discovery
 echo "pike-runtime-discovery"
 
@@ -382,9 +293,6 @@ INSTDIR="$TMP/inst"
 INSTALLER=$(cd "$(dirname "$0")" && pwd)/install.sh
 mkdir -p "$INSTDIR"
 "$INSTALLER" "$INSTDIR/dest" >/dev/null 2>&1
-for t in pike-build-and-docs/pike-check.pike; do
-  [ -f "$INSTDIR/dest/$t" ] && ok "install delivers $t" || bad "install delivers $t"
-done
 
 # --help must not be treated as a target (it once was, and printed "Unknown target")
 if "$INSTALLER" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
@@ -405,14 +313,6 @@ if "$INSTALLER" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--he
 [ -d "$INSTDIR/dest/pike-testing" ] && bad "--uninstall removes skills" \
                                     || ok "--uninstall removes skills"
 # and they must actually run from there, not just exist
-if [ -f "$INSTDIR/dest/pike-build-and-docs/pike-check.pike" ]; then
-  printf 'int main(){ return 0; }\n' > "$INSTDIR/ok.pike"
-  if ( cd "$INSTDIR" && pike dest/pike-build-and-docs/pike-check.pike --quiet ok.pike ) >/dev/null 2>&1; then
-    ok "pike-check runs from its installed location"
-  else
-    bad "pike-check runs from its installed location"
-  fi
-fi
 echo
 
 # INSTALL.md is agent-facing; keep it honest about the URL trap.
@@ -437,11 +337,6 @@ if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instruction
   fi
 fi
 
-# The tool must live inside a skill directory. `gh skill install` copies the
-# skill folder only, so a sibling tools/ would never reach the user.
-[ -f "$HERE_SKILLS/pike-build-and-docs/pike-check.pike" ] \
-  && ok "pike-check.pike ships inside its skill" \
-  || bad "pike-check.pike ships inside its skill"
 if grep -rqE '(^|[^-a-z])tools/pike-' "$HERE_SKILLS"/*/SKILL.md 2>/dev/null; then
   bad "no stale tools/ paths in skills" "a SKILL.md still points at tools/"
 else

@@ -177,43 +177,56 @@ so an empty `build/` is the failure mode to watch for.
 
 ## Checking That Code Compiles
 
-`pike-check.pike` ships with this skill. It compiles Pike code — resolving inherits,
-imports and includes — and reports every error with `file:line:col`, which editors and
-terminals turn into a clickable link.
-
-**The tool ships beside this `SKILL.md`, not in your project** — a bare `pike-check.pike`
-will not resolve from the workspace root. Locate it once, then use `$CHECK`:
+Use `compile_file()`. It reports `file:line:` on stderr and exits non-zero, so it works
+in CI as-is:
 
 ```bash
-CHECK=$(find .github/skills ~/.copilot/skills ~/.claude/skills ~/.agents/skills \
-          -name pike-check.pike 2>/dev/null | head -1)
-
-pike "$CHECK" src/                           # a whole tree, recursively
-pike "$CHECK" --roxen=/opt/roxen m.pike
+pike -e 'compile_file("Consumer.pike");'
+# ./Broken.pike:1:Undefined identifier undefined_fn_xyz.
+# Compilation failed.          exit 10 — clean file exits 0
 ```
 
+Add `-M <root>` when the file references the project's own modules, or every one of them
+reports `Undefined identifier`:
 
-> **If `pike-check.pike` is not next to this file**, the skill was installed by a method
-> that copies only `SKILL.md` — `copilot skill add <url>` does this. Register the
-> skills directory instead (`copilot skill add <dir>`), or use the repo's
-> `install.sh`. Everything else in this skill works without the tool.
-
-**Root causes first.** An undefined type in a signature makes Pike lose the return type
-too, so one bad identifier cascades into `Illegal program identifier`, `Must return a
-value for a non-void function` and more. Only the root is shown by default:
-
-```
-handler.pike:1:1: error: Undefined identifier UnknownType.
-  +5 follow-on errors hidden — fix the undefined identifier above first (--all to show)
+```bash
+pike -M . -e 'compile_file("Consumer.pike");'
 ```
 
-Exit status separates the outcomes: `0` clean, `1` real errors, `2` compiled but Roxen
-references went unverified — so a skipped check is never read as a pass. Warnings are
-reported without failing the file (`--strict` opts in).
+### Two things that look like a compile check and are not
 
-Validated against Pike's own standard library: **535 of 545 modules compile clean**; the
-rest need GTK bindings that are not built, or are `.pmod` submodules whose siblings
-resolve only through their parent.
+Both were reached for by real agents asked to check a file. Neither checks anything:
+
+| Command | What actually happens |
+|---|---|
+| `pike -c file.pike` | **`-c` is not a Pike flag.** Prints `Unknown option -c.` and exits 1 — nothing was compiled, and the exit code reads as "your code is broken" |
+| `pike -M . file.pike` | **Runs the file.** Fails with `has no main()`, which says nothing about whether it compiled |
+
+### A whole tree
+
+Feed it **files only**. A `.pmod` *directory* handed to `compile_file()` throws
+`Bad argument 1 to cpp(). Expected string.`, and a loop that misses this reports every
+directory module as a broken file — on a small tree that turns 1 real error into 4:
+
+```bash
+fail=0
+for f in $(find . -type f \( -name '*.pike' -o -name '*.pmod' \) | sort); do
+  pike -M . -e "compile_file(\"$f\");" >/dev/null 2>&1 \
+    || { echo "FAIL $f"; pike -M . -e "compile_file(\"$f\");" 2>&1 | head -2; fail=1; }
+done
+exit $fail
+```
+
+`-type f` is the whole fix: `.pmod` is used for both files and directories, so a bare
+`-name '*.pmod'` matches the directories too.
+
+### Roxen code will not compile this way
+
+`Roxen.pmod` and `RXML.pmod` need a running Roxen, so a plain `compile_file()` on a Roxen
+module reports `Undefined identifier MODULE_LOCATION` no matter what you put on the module
+path. That is not a defect in the module. Use the installation's own
+`./start --program` to get Roxen's Pike, module path and include path, and treat anything
+else as unverified rather than broken.
 
 ## Checklist
 
@@ -224,5 +237,4 @@ resolve only through their parent.
 
 ## Reference
 
-- `pike-check.pike` — compile-check a file or a whole tree, Roxen-aware (ships with this skill)
 - `references/autodoc-tags.md` — autodoc tag reference and pipeline details

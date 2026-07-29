@@ -56,18 +56,12 @@ Use a plain copy instead when the checkout may move or be deleted — a copy is
 self-contained, a symlink is not. `--list` compares a content fingerprint rather than the
 git commit, so it catches drift from uncommitted edits too.
 
-### Do not install from a URL
+### Prefer a directory over a URL
 
-`copilot skill add <url>` materialises **only `SKILL.md`**. One of these skills ships a
-tool next to its `SKILL.md`:
-
-```
-skills/pike-build-and-docs/pike-check.pike
-```
-
-A URL install leaves those behind, and the skill then tells you to run a file that is not
-there. Verified: it produces a directory containing `SKILL.md` and nothing else. Use a
-directory or `install.sh`.
+`copilot skill add <url>` materialises **only `SKILL.md`**, dropping each skill's
+`references/`. No skill ships an executable any more — every command is a one-liner in the
+skill text — so a URL install is degraded rather than broken. Use a directory or
+`install.sh` and get the reference material too.
 
 ## 3. Verify — do not skip this
 
@@ -81,15 +75,14 @@ claude -p "list your pike-* skills"  # Claude Code
 You should see four: `pike-module-layout`, `pike-testing`, `pike-runtime-discovery`,
 `pike-build-and-docs`.
 
-Then confirm a bundled tool survived the install, since that is the part most likely to be
-missing:
+Then confirm the reference material survived, since a URL install silently drops it:
 
 ```sh
-find . "$HOME" -path "*pike-build-and-docs/pike-check.pike" 2>/dev/null | head -1
+find . "$HOME" -path "*pike-module-layout/references/*" 2>/dev/null | head -1
 ```
 
-If that finds nothing, the skills are installed but degraded — the instructions will
-reference a tool the user does not have. Say so rather than reporting success.
+If that finds nothing, the skills are installed but degraded. Say so rather than
+reporting success.
 
 ## 4. Report honestly
 
