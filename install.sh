@@ -15,10 +15,10 @@ LINK=0
 ACTION=install
 TARGET=""
 
-# Tools that ship beside a SKILL.md. Losing these is the failure mode worth
-# guarding: the skill still installs, but then instructs the agent to run a file
-# that is not there.
-BUNDLED="pike-build-and-docs/pike-check.pike"
+# No skill ships a tool any more: both were replaced by the one-liners they
+# wrapped, after measurement showed agents reach for a probe over a script.
+# Kept as an empty list so re-introducing a tool only means naming it here.
+BUNDLED=""
 
 usage() {
   cat <<'EOF'

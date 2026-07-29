@@ -58,8 +58,8 @@ copilot skill add /path/to/pike-agent-skills/skills     # registers the director
 | `copilot skill add <url>` | **lost** — only `SKILL.md` is materialised |
 
 Verified: a URL install produced `~/.copilot/skills/pike-module-layout/SKILL.md` and
-nothing else, so the skill would tell the agent to run a `pike-check.pike` that is not
-there. Use the directory form, or `install.sh`.
+nothing else — the `references/` material is dropped. No skill ships an executable, so a
+URL install is degraded rather than broken. Use the directory form, or `install.sh`.
 
 If your `gh` is recent enough to have the `skill` command, that is GitHub's own installer
 and handles target directories, version pinning and provenance for you:
@@ -75,7 +75,6 @@ The tools ship **inside** the skills that document them, so they arrive with the
 and need no separate step:
 
 ```
-skills/pike-build-and-docs/pike-check.pike      compile-check a file or a whole tree
 ```
 
 ### install.sh
@@ -129,73 +128,37 @@ For Claude specifically, `npx skills add TheSmuks/pike-agent-skills` also works.
 These cover **workflow**. For Pike syntax, types, and standard-library semantics, pair
 them with a language reference skill — that ground is deliberately not repeated here.
 
-## Tool: does this code compile?
+## Does this code compile?
 
 ```bash
-pike tools/pike-check.pike src/            # whole tree, recursively
-pike tools/pike-check.pike --roxen=/opt/roxen mymodule.pike
+pike -e 'compile_file("Consumer.pike");'      # exit 0 clean, non-zero on error
+pike -M . -e 'compile_file("Consumer.pike");' # add -M for the project's own modules
 ```
 
-[`tools/pike-check.pike`](tools/pike-check.pike) compiles Pike code — resolving inherits,
-imports and includes — and reports every error with `file:line`. Point it at a directory
-and it walks the tree.
+`compile_file()` reports `file:line:` on stderr and sets a usable exit code, so it drops
+straight into CI. Two lookalikes do **not** check anything, and both were reached for by
+real agents asked to check a file: `pike -c file.pike` (`-c` is not a Pike flag — it
+prints `Unknown option -c.` and exits 1 having compiled nothing) and `pike file.pike`
+(which *runs* the file and fails with `has no main()`).
+
+Sweeping a tree needs one detail — **`-type f`**:
+
+```bash
+for f in $(find . -type f \( -name '*.pike' -o -name '*.pmod' \) | sort); do
+  pike -M . -e "compile_file(\"$f\");" >/dev/null 2>&1 || echo "FAIL $f"
+done
+```
+
+`.pmod` names both files and directories, and a directory handed to `compile_file()`
+throws `Bad argument 1 to cpp()`. Omit `-type f` and a tree with one real error reports
+four.
 
 **Roxen is handled honestly.** Roxen's runtime is *bootstrapped*, not importable:
 `roxenloader` installs ~145 constants and swaps in `roxen_master.pike` before `Roxen.pmod`
-or `RXML.pmod` will compile. Stock Pike cannot resolve `Roxen.*` on its own.
-
-On the first run over Roxen code it looks for an install (common locations, `ROXEN_DIR`,
-`--roxen`), and if it finds none it asks once — on a terminal only — then remembers the
-answer in `$XDG_CONFIG_HOME/pike-agent-skills/roxen-path`. Declining is remembered too, so
-it never nags. In CI, where stdin is not a terminal, it never prompts.
-
-With `--roxen=<dir>` pointing at a real install, compilation is delegated to its own
-`./start --program`, which supplies Roxen's Pike, module path and include path — nothing
-is stubbed. That resolves `#include <module.h>` and locates `Roxen.pmod`.
-
-It does **not** boot the Roxen runtime: `--program` replaces `roxenloader.pike` rather
-than running after it, so the master swap and the constants it installs never happen.
-Code calling `Roxen.*` therefore still reports as unverified — `Roxen.pmod` itself needs
-that runtime. Measured both ways in a container with a real Roxen 6.3 and Pike 8.0.1116: with
-roxenloader running `Roxen.pmod` compiles, under `--program` it does not. See
-[roxen-agent-skills/lab](https://github.com/TheSmuks/roxen-agent-skills/tree/main/lab).
-
-Roxen references that cannot be checked are reported as **unverified warnings** and never
-silently accepted:
-
-```
-!! handler.pike: 1 Roxen reference could NOT be verified: Roxen
-     handler.pike:3: Undefined identifier Roxen.
-   No Roxen install found. Pass --roxen=<dir>, or set ROXEN_DIR.
-   These are NOT confirmed correct — this check was incomplete.
-
-INCOMPLETE: your code compiled, but 1 Roxen reference went unverified.
-```
-
-**Root causes first.** An undefined type in a signature cascades: Pike loses the return
-type too, so one bad identifier yields "Illegal program identifier", "Must return a value
-for a non-void function", "Expected: mixed", and so on. Verified in the lab — a single
-undefined `Gz` at `Roxen.pmod:1064` produced dozens of these. Only the root is shown by
-default, with the rest behind a count (`--all` shows everything):
-
-```
-handler.pike:1:1: error: Undefined identifier UnknownType.
-  +5 follow-on errors hidden — fix the undefined identifier above first (--all to show)
-```
-
-Diagnostics are absolute `file:line:col: message`, which editors and terminals turn into
-clickable links, and are coloured when writing to a terminal (`--color`/`--no-color`,
-honours `NO_COLOR`).
-
-**Validated against real source.** Run over Pike 8.0.1116's own standard library — its
-matching compiler — **535 of 545 modules compile clean**. Of the 10 that do not, 7 need
-GTK bindings that are not built here and 3 are `.pmod` submodules whose sibling references
-resolve only through their parent module, a documented limitation of checking a submodule
-standalone.
-
-Exit status distinguishes the three outcomes: `0` clean, `1` real errors in your code,
-`2` compiled but Roxen went unchecked. A pass is never claimed for code that wasn't
-actually checked.
+or `RXML.pmod` will compile. Stock Pike cannot resolve `Roxen.*` on its own, so a Roxen
+module reporting `Undefined identifier MODULE_LOCATION` is not broken — it is unverified.
+Use the installation's own `./start --program` to check it, and report anything else as
+unverified rather than failing.
 
 ## Resolving a name to its source
 
