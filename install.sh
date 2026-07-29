@@ -1,93 +1,252 @@
 #!/bin/sh
 # Install the Pike agent skills for any coding agent.
 #
-# Usage:
-#   ./install.sh                  # auto-detect targets in the current project
-#   ./install.sh copilot-user     # ~/.copilot/skills (all projects)
-#   ./install.sh agents-user      # ~/.agents/skills  (all projects)
-#   ./install.sh claude           # ~/.claude/skills  (all projects)
-#   ./install.sh claude-project   # ./.claude/skills
-#   ./install.sh copilot          # ./.github/skills + ./.github/instructions
-#   ./install.sh codex            # ./.agents/skills + ./AGENTS.md
-#   ./install.sh agents           # ./AGENTS.md only (any AGENTS.md-aware agent)
-#   ./install.sh /some/dir        # copy skills/ into an arbitrary directory
-#
-# Everything is plain markdown — copying by hand works just as well.
+# Everything here is plain markdown plus two Pike scripts — copying by hand works
+# just as well. This exists to put them in the right place for your agent, to
+# check they actually arrived, and to say so if they did not.
 
-set -eu
+set -u
 
 SRC=$(cd "$(dirname "$0")" && pwd)
-TARGET=${1:-auto}
+SKILLS="$SRC/skills"
+DRY=0
+QUIET=0
+ACTION=install
+TARGET=""
 
+# Tools that ship beside a SKILL.md. Losing these is the failure mode worth
+# guarding: the skill still installs, but then instructs the agent to run a file
+# that is not there.
+BUNDLED="pike-module-layout/pike-resolve.pike pike-build-and-docs/pike-check.pike"
+
+usage() {
+  cat <<'EOF'
+Usage: install.sh [options] [target]
+
+Targets
+  (none)            auto-detect from the current project and your home directory
+  claude            ~/.claude/skills            Claude Code, all projects
+  claude-project    ./.claude/skills            Claude Code, this project
+  copilot           ./.github/skills            GitHub Copilot, this project
+  copilot-user      ~/.copilot/skills           GitHub Copilot, all projects
+  codex             ./.agents/skills            Codex, this project
+  agents-user       ~/.agents/skills            any agent, all projects
+  agents            AGENTS.md only              Cursor, Zed, Amp, anything AGENTS.md-aware
+  <directory>       that directory
+
+Options
+  -n, --dry-run     show what would happen, change nothing
+  -u, --uninstall   remove previously installed skills from the target
+  -l, --list        list install locations that currently hold these skills
+  -q, --quiet       only report problems
+  -h, --help        this text
+
+Notes
+  If the Copilot CLI is present, `copilot skill add <dir>` is a better route than
+  copying: it registers this directory in place, so the bundled tools stay
+  reachable and updates need no reinstall. This script will tell you when that
+  applies. Never install these skills from a raw SKILL.md URL — that copies only
+  the markdown and silently drops the tools.
+EOF
+}
+
+say()  { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
+run()  { if [ "$DRY" -eq 1 ]; then printf '  would: %s\n' "$*"; else "$@"; fi; }
+die()  { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
+
+SKILL_NAMES=$(cd "$SKILLS" && ls -d */ 2>/dev/null | tr -d /)
+
+# --------------------------------------------------------------------- copying
 copy_skills() {
-  mkdir -p "$1"
-  cp -r "$SRC/skills/." "$1/"
-  echo "  skills      -> $1"
+  dest=$1
+  existing=0
+  for s in $SKILL_NAMES; do [ -d "$dest/$s" ] && existing=1; done
+  run mkdir -p "$dest"
+  run cp -r "$SKILLS/." "$dest/"
+  # A provenance stamp, so a later reader can tell where these came from and
+  # whether they are stale. gh skill records this in frontmatter; we cannot
+  # rewrite the skills, so it goes beside them.
+  if [ "$DRY" -eq 0 ]; then
+    { printf 'source: %s\n' "$SRC"
+      printf 'origin: https://github.com/TheSmuks/pike-agent-skills\n'
+      printf 'commit: %s\n' "$(cd "$SRC" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+      printf 'installed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$dest/.pike-agent-skills"
+  fi
+  if [ "$DRY" -eq 1 ]; then
+    say "  would $([ "$existing" -eq 1 ] && echo update || echo install) -> $dest"
+  else
+    say "  $([ "$existing" -eq 1 ] && echo updated || echo installed) -> $dest"
+  fi
 }
 
 copy_agents_md() {
-  if [ -f "$1/AGENTS.md" ] && ! grep -q "Pike Working Rules" "$1/AGENTS.md" 2>/dev/null; then
-    printf '\n' >> "$1/AGENTS.md"
-    cat "$SRC/AGENTS.md" >> "$1/AGENTS.md"
-    echo "  rules       -> $1/AGENTS.md (appended)"
-  elif [ ! -f "$1/AGENTS.md" ]; then
-    cp "$SRC/AGENTS.md" "$1/AGENTS.md"
-    echo "  rules       -> $1/AGENTS.md"
+  dest=$1
+  if [ -f "$dest/AGENTS.md" ] && grep -q "Pike Working Rules" "$dest/AGENTS.md" 2>/dev/null; then
+    say "  rules     -> $dest/AGENTS.md (already present)"
+  elif [ -f "$dest/AGENTS.md" ]; then
+    run sh -c "printf '\n' >> '$dest/AGENTS.md'; cat '$SRC/AGENTS.md' >> '$dest/AGENTS.md'"
+    say "  rules     -> $dest/AGENTS.md (appended)"
   else
-    echo "  rules       -> $1/AGENTS.md (already present, skipped)"
+    run cp "$SRC/AGENTS.md" "$dest/AGENTS.md"
+    say "  rules     -> $dest/AGENTS.md"
   fi
 }
 
 copy_copilot_instructions() {
-  mkdir -p "$1/.github/instructions"
-  cp "$SRC/.github/instructions/pike.instructions.md" "$1/.github/instructions/"
-  echo "  auto-rules  -> $1/.github/instructions/pike.instructions.md"
+  run mkdir -p "$1/.github/instructions"
+  run cp "$SRC/.github/instructions/pike.instructions.md" "$1/.github/instructions/"
+  say "  auto-rules -> $1/.github/instructions/pike.instructions.md"
 }
 
-case "$TARGET" in
-  claude)
-    copy_skills "$HOME/.claude/skills"
-    ;;
-  copilot-user)
-    copy_skills "$HOME/.copilot/skills"
-    ;;
-  agents-user)
-    copy_skills "$HOME/.agents/skills"
-    ;;
-  claude-project)
-    copy_skills "./.claude/skills"
-    copy_agents_md "."
-    ;;
-  copilot)
-    copy_skills "./.github/skills"
-    copy_copilot_instructions "."
-    ;;
-  codex)
-    copy_skills "./.agents/skills"
-    copy_agents_md "."
-    ;;
+# ------------------------------------------------------------------ verifying
+# Copying is not the same as being usable. Check the tools came too, and tell the
+# host's own lister to confirm discovery where we can.
+verify() {
+  dest=$1
+  [ "$DRY" -eq 1 ] && return 0
+  missing=""
+  for t in $BUNDLED; do
+    [ -f "$dest/$t" ] || missing="$missing $t"
+  done
+  if [ -n "$missing" ]; then
+    printf '\n  WARNING: bundled tools did not arrive:%s\n' "$missing" >&2
+    printf '  The skills will reference files that are not there.\n' >&2
+    return 1
+  fi
+  say "  verified  -> $(printf '%s' "$SKILL_NAMES" | wc -w) skills, tools present"
+  return 0
+}
+
+report_discovery() {
+  [ "$DRY" -eq 1 ] && return 0
+  if command -v copilot >/dev/null 2>&1 && copilot skill --help >/dev/null 2>&1; then
+    n=$(copilot skill list 2>/dev/null | grep -c 'pike-' || true)
+    [ "${n:-0}" -gt 0 ] && say "  copilot sees $n pike-* skill(s)"
+  fi
+}
+
+suggest_native() {
+  if command -v copilot >/dev/null 2>&1 && copilot skill --help >/dev/null 2>&1; then
+    say ""
+    say "  tip: the Copilot CLI is installed. Registering this directory keeps the"
+    say "       tools reachable and picks up updates without reinstalling:"
+    say "         copilot skill add $SKILLS"
+  fi
+}
+
+do_uninstall() {
+  dest=$1
+  removed=0
+  for s in $SKILL_NAMES; do
+    if [ -d "$dest/$s" ]; then run rm -rf "$dest/$s"; removed=$((removed + 1)); fi
+  done
+  [ -f "$dest/.pike-agent-skills" ] && run rm -f "$dest/.pike-agent-skills"
+  say "  removed $removed skill(s) from $dest"
+}
+
+do_list() {
+  found=0
+  for d in "$HOME/.claude/skills" "$HOME/.copilot/skills" "$HOME/.agents/skills" \
+           "./.claude/skills" "./.github/skills" "./.agents/skills"; do
+    [ -f "$d/.pike-agent-skills" ] || continue
+    found=1
+    printf '%s\n' "$d"
+    sed 's/^/    /' "$d/.pike-agent-skills"
+  done
+  [ "$found" -eq 0 ] && echo "these skills are not installed anywhere this script looks"
+  return 0
+}
+
+# ------------------------------------------------------------------ arguments
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)      usage; exit 0 ;;
+    -n|--dry-run)   DRY=1 ;;
+    -q|--quiet)     QUIET=1 ;;
+    -u|--uninstall) ACTION=uninstall ;;
+    -l|--list)      ACTION=list ;;
+    -*)             die "unknown option: $1 (try --help)" ;;
+    *)              [ -n "$TARGET" ] && die "more than one target given"; TARGET=$1 ;;
+  esac
+  shift
+done
+
+[ -d "$SKILLS" ] || die "no skills/ directory beside this script"
+[ "$ACTION" = list ] && { do_list; exit 0; }
+[ "$DRY" -eq 1 ] && say "(dry run — nothing will be written)"
+
+resolve_dest() {
+  case "$1" in
+    claude)         echo "$HOME/.claude/skills" ;;
+    claude-project) echo "./.claude/skills" ;;
+    copilot)        echo "./.github/skills" ;;
+    copilot-user)   echo "$HOME/.copilot/skills" ;;
+    codex)          echo "./.agents/skills" ;;
+    agents-user)    echo "$HOME/.agents/skills" ;;
+    /*|./*|../*)    echo "$1" ;;
+    *)              echo "" ;;
+  esac
+}
+
+if [ "$ACTION" = uninstall ]; then
+  if [ -z "$TARGET" ]; then
+    for d in "$HOME/.claude/skills" "$HOME/.copilot/skills" "$HOME/.agents/skills" \
+             "./.claude/skills" "./.github/skills" "./.agents/skills"; do
+      [ -d "$d" ] && do_uninstall "$d"
+    done
+  else
+    dest=$(resolve_dest "$TARGET")
+    [ -n "$dest" ] || die "unknown target: $TARGET (try --help)"
+    do_uninstall "$dest"
+  fi
+  exit 0
+fi
+
+rc=0
+case "${TARGET:-auto}" in
   agents)
     copy_agents_md "."
     ;;
   auto)
-    echo "Auto-detecting agent directories in $(pwd)"
+    say "Auto-detecting agent locations"
     found=0
-    [ -d "./.claude" ]  && { copy_skills "./.claude/skills";  found=1; }
-    [ -d "./.copilot" ] && { copy_skills "./.copilot/skills"; found=1; }
-    [ -d "./.github" ]  && { copy_skills "./.github/skills";  copy_copilot_instructions "."; found=1; }
-    [ -d "./.agents" ]  && { copy_skills "./.agents/skills";  found=1; }
+    for pair in ".claude:./.claude/skills" ".copilot:./.copilot/skills" \
+                ".agents:./.agents/skills"; do
+      d=${pair%%:*}; dest=${pair#*:}
+      [ -d "./$d" ] && { copy_skills "$dest"; verify "$dest" || rc=1; found=1; }
+    done
+    if [ -d "./.github" ]; then
+      copy_skills "./.github/skills"; verify "./.github/skills" || rc=1
+      copy_copilot_instructions "."; found=1
+    fi
+    for pair in "$HOME/.claude:$HOME/.claude/skills" "$HOME/.copilot:$HOME/.copilot/skills" \
+                "$HOME/.agents:$HOME/.agents/skills"; do
+      d=${pair%%:*}; dest=${pair#*:}
+      [ -d "$d" ] && { copy_skills "$dest"; verify "$dest" || rc=1; found=1; }
+    done
     copy_agents_md "."
-    [ "$found" -eq 0 ] && echo "  (no agent directories found — installed AGENTS.md only)"
-    ;;
-  /*|./*|../*)
-    copy_skills "$TARGET"
+    [ "$found" -eq 0 ] && say "  (no agent directories found — installed AGENTS.md only)"
     ;;
   *)
-    echo "Unknown target: $TARGET" >&2
-    sed -n '3,16p' "$0" >&2
-    exit 1
+    dest=$(resolve_dest "$TARGET")
+    [ -n "$dest" ] || die "unknown target: $TARGET (try --help)"
+    copy_skills "$dest"
+    verify "$dest" || rc=1
+    case "$TARGET" in
+      claude-project|codex) copy_agents_md "." ;;
+      copilot)              copy_copilot_instructions "." ;;
+    esac
     ;;
 esac
 
-echo
-echo "Done. Verify the documented commands against your Pike with: $SRC/verify.sh"
+report_discovery
+suggest_native
+
+if [ "$rc" -ne 0 ]; then
+  printf '\ninstall.sh: finished with warnings — see above\n' >&2
+  exit 1
+fi
+say ""
+say "Done. Check the documented commands against your Pike with: $SRC/verify.sh"
+exit 0
