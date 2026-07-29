@@ -28,6 +28,34 @@ Take the first that applies.
 `install.sh` targets: `claude`, `claude-project`, `copilot`, `copilot-user`, `codex`,
 `agents`, `agents-user`, or a directory path. `install.sh` with no argument auto-detects.
 
+### Where each platform actually looks
+
+Measured, not assumed — a canary skill holding an unguessable token was installed at each
+location and each agent was asked for the token. A negative control confirmed no agent can
+produce it without the skill. All twelve combinations were discovered:
+
+| Platform | Project scope | User scope | Symlink OK |
+|---|---|---|---|
+| Claude Code | `.claude/skills` | `~/.claude/skills` | yes |
+| Codex | `.agents/skills` | `~/.agents/skills` | yes |
+| GitHub Copilot | `.github/skills` | `~/.copilot/skills` | yes |
+
+### Prefer `--link` when installing from a checkout you edit
+
+A copy is a snapshot. Edit the source afterwards and every copy is silently wrong — and a
+stale skill is worse than no skill, because the agent will confidently report fixed
+behaviour as broken. `--link` symlinks each skill directory instead, so installs track the
+checkout and cannot rot:
+
+```bash
+./install.sh --link claude
+./install.sh --list          # flags any install whose content has drifted
+```
+
+Use a plain copy instead when the checkout may move or be deleted — a copy is
+self-contained, a symlink is not. `--list` compares a content fingerprint rather than the
+git commit, so it catches drift from uncommitted edits too.
+
 ### Do not install from a URL
 
 `copilot skill add <url>` materialises **only `SKILL.md`**. Two of these skills ship a tool
