@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-64%2F64_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-67%2F67_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -16,14 +16,21 @@ and `./verify.sh` re-runs all of them.
 ## Install
 
 ```bash
-gh skill install TheSmuks/pike-agent-skills
+./install.sh claude        # or: codex, copilot, agents-user, ...
 ```
 
-That is GitHub's own installer — it discovers the skills, puts them where your agent
-expects (`.github/skills`, `.claude/skills`, `.agents/skills`, or `~/.copilot/skills`),
-and records provenance in each `SKILL.md`. Pin a version with `--pin v1.2.0`, install one
-skill with `gh skill install TheSmuks/pike-agent-skills pike-testing`, or look first with
-`gh skill preview`.
+Verified end to end: after installing, **Claude Code 2.1.220** and **Codex 0.143.0** both
+list all four skills, and the bundled tools run from where they land.
+
+If your `gh` is recent enough to have the `skill` command, that is GitHub's own installer
+and handles target directories, version pinning and provenance for you:
+
+```bash
+gh skill install TheSmuks/pike-agent-skills --pin v1.2.0
+```
+
+> `gh skill` is newer than gh 2.46.0, which does not have it. Check with
+> `gh skill --help`; if it is missing, use `install.sh` — that is the path verified here.
 
 The tools ship **inside** the skills that document them, so they arrive with the install
 and need no separate step:
@@ -33,9 +40,7 @@ skills/pike-module-layout/pike-resolve.pike     trace inherit/import/include cha
 skills/pike-build-and-docs/pike-check.pike      compile-check a file or a whole tree
 ```
 
-### Without gh
-
-`install.sh` copies the same files by hand:
+### install.sh
 
 ```bash
 git clone https://github.com/TheSmuks/pike-agent-skills
@@ -55,6 +60,11 @@ cd your-project
 | `install.sh /path/to/dir` | that directory | anything else |
 
 Re-running is safe — `AGENTS.md` is appended to once and skipped thereafter.
+
+Tested on this machine: `claude-project`, `codex`, `copilot` and `agents` all install
+cleanly, and the tools execute from their installed location. The Copilot layout follows
+GitHub's documented convention but was not exercised locally — no Copilot CLI installed
+here to confirm it with.
 
 ### What each piece is for
 
@@ -217,7 +227,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 64   failed: 0
+passed: 67   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are

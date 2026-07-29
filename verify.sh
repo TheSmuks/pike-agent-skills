@@ -381,6 +381,29 @@ check "module installer is available" "Pike module installer" pike -x module --h
 check "monger (stock package manager) is available" "Monger" pike -x monger --help
 echo
 
+# ------------------------------------------------------------------- install
+# The tools bug survived three releases because every check ran from a git
+# clone, where tools/ trivially exists. Test from an *installed* tree instead —
+# that is the only state a user ever sees.
+echo "install"
+INSTDIR="$TMP/inst"
+INSTALLER=$(cd "$(dirname "$0")" && pwd)/install.sh
+mkdir -p "$INSTDIR"
+"$INSTALLER" "$INSTDIR/dest" >/dev/null 2>&1
+for t in pike-module-layout/pike-resolve.pike pike-build-and-docs/pike-check.pike; do
+  [ -f "$INSTDIR/dest/$t" ] && ok "install delivers $t" || bad "install delivers $t"
+done
+# and they must actually run from there, not just exist
+if [ -f "$INSTDIR/dest/pike-build-and-docs/pike-check.pike" ]; then
+  printf 'int main(){ return 0; }\n' > "$INSTDIR/ok.pike"
+  if ( cd "$INSTDIR" && pike dest/pike-build-and-docs/pike-check.pike --quiet ok.pike ) >/dev/null 2>&1; then
+    ok "pike-check runs from its installed location"
+  else
+    bad "pike-check runs from its installed location"
+  fi
+fi
+echo
+
 # ------------------------------------------------------------------ repo health
 echo "repo consistency"
 
