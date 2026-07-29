@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-61%2F61_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-64%2F64_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -15,8 +15,27 @@ and `./verify.sh` re-runs all of them.
 
 ## Install
 
-Everything here is plain markdown — no runtime, no build, no lock-in. The installer just
-copies files where your agent looks for them.
+```bash
+gh skill install TheSmuks/pike-agent-skills
+```
+
+That is GitHub's own installer — it discovers the skills, puts them where your agent
+expects (`.github/skills`, `.claude/skills`, `.agents/skills`, or `~/.copilot/skills`),
+and records provenance in each `SKILL.md`. Pin a version with `--pin v1.2.0`, install one
+skill with `gh skill install TheSmuks/pike-agent-skills pike-testing`, or look first with
+`gh skill preview`.
+
+The tools ship **inside** the skills that document them, so they arrive with the install
+and need no separate step:
+
+```
+skills/pike-module-layout/pike-resolve.pike     trace inherit/import/include chains
+skills/pike-build-and-docs/pike-check.pike      compile-check a file or a whole tree
+```
+
+### Without gh
+
+`install.sh` copies the same files by hand:
 
 ```bash
 git clone https://github.com/TheSmuks/pike-agent-skills
@@ -24,16 +43,16 @@ cd your-project
 ../pike-agent-skills/install.sh          # auto-detects what you use
 ```
 
-Or pick a target explicitly:
-
 | Command | Installs to | For |
 |---------|-------------|-----|
+| `install.sh copilot` | `./.github/skills/` + `./.github/instructions/` | GitHub Copilot, this project |
+| `install.sh copilot-user` | `~/.copilot/skills/` | Copilot, all projects |
 | `install.sh claude` | `~/.claude/skills/` | Claude, all projects |
 | `install.sh claude-project` | `./.claude/skills/` + `AGENTS.md` | Claude, this project |
-| `install.sh copilot` | `./.github/skills/` + `./.github/instructions/` | GitHub Copilot |
 | `install.sh codex` | `./.agents/skills/` + `AGENTS.md` | Codex |
-| `install.sh agents` | `AGENTS.md` only | Cursor, Zed, Amp, Jules, anything AGENTS.md-aware |
-| `install.sh /path/to/dir` | that directory | Anything else |
+| `install.sh agents-user` | `~/.agents/skills/` | any agent, all projects |
+| `install.sh agents` | `AGENTS.md` only | Cursor, Zed, Amp, anything AGENTS.md-aware |
+| `install.sh /path/to/dir` | that directory | anything else |
 
 Re-running is safe — `AGENTS.md` is appended to once and skipped thereafter.
 
@@ -198,7 +217,7 @@ Runs every documented command against your local Pike and exits non-zero if any
 behaviour no longer holds.
 
 ```
-passed: 61   failed: 0
+passed: 64   failed: 0
 ```
 
 Run it after a Pike upgrade — it is the fastest way to find out whether these skills are

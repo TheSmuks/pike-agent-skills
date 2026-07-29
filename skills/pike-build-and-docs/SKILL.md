@@ -175,6 +175,34 @@ pike -e 'write("%O\n", undefinedp(master()->resolv("MyLib")));'   # 0 = installe
 The `test` guard matters: extraction succeeds quietly when it finds nothing to extract,
 so an empty `build/` is the failure mode to watch for.
 
+## Checking That Code Compiles
+
+`pike-check.pike` ships with this skill. It compiles Pike code — resolving inherits,
+imports and includes — and reports every error with `file:line:col`, which editors and
+terminals turn into a clickable link.
+
+```bash
+pike pike-check.pike src/                    # a whole tree, recursively
+pike pike-check.pike --roxen=/opt/roxen m.pike
+```
+
+**Root causes first.** An undefined type in a signature makes Pike lose the return type
+too, so one bad identifier cascades into `Illegal program identifier`, `Must return a
+value for a non-void function` and more. Only the root is shown by default:
+
+```
+handler.pike:1:1: error: Undefined identifier UnknownType.
+  +5 follow-on errors hidden — fix the undefined identifier above first (--all to show)
+```
+
+Exit status separates the outcomes: `0` clean, `1` real errors, `2` compiled but Roxen
+references went unverified — so a skipped check is never read as a pass. Warnings are
+reported without failing the file (`--strict` opts in).
+
+Validated against Pike's own standard library: **535 of 545 modules compile clean**; the
+rest need GTK bindings that are not built, or are `.pmod` submodules whose siblings
+resolve only through their parent.
+
 ## Checklist
 
 - [ ] Confirmed a build is actually needed (`.cmod` or autotools present)
@@ -184,4 +212,5 @@ so an empty `build/` is the failure mode to watch for.
 
 ## Reference
 
+- `pike-check.pike` — compile-check a file or a whole tree, Roxen-aware (ships with this skill)
 - `references/autodoc-tags.md` — autodoc tag reference and pipeline details

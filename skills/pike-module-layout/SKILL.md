@@ -102,11 +102,11 @@ directory is on the path.
 
 ## Tracing a Chain to Its Sources
 
-`tools/pike-resolve.pike` answers "where does this actually come from?" deterministically,
+`pike-resolve.pike` answers "where does this actually come from?" deterministically,
 using Pike's own resolver rather than guessing from filenames.
 
 ```bash
-pike -M . tools/pike-resolve.pike Leaf.pike
+pike -M . pike-resolve.pike Leaf.pike
 ```
 
 ```
@@ -134,11 +134,11 @@ Two passes, because they see different things:
 `--imports` to follow imports transitively.
 
 ```bash
-pike -M . tools/pike-resolve.pike --imports Foo.pike   # include imports
-pike -M . tools/pike-resolve.pike --roxen=/opt/roxen M.pike  # resolve Roxen + <module.h>
-pike -M . tools/pike-resolve.pike --static Broken.pike # target does not compile
-pike -M . tools/pike-resolve.pike --json Foo.pike      # machine-readable
-pike tools/pike-resolve.pike Standards.JSON            # a module, not a file
+pike -M . pike-resolve.pike --imports Foo.pike   # include imports
+pike -M . pike-resolve.pike --roxen=/opt/roxen M.pike  # resolve Roxen + <module.h>
+pike -M . pike-resolve.pike --static Broken.pike # target does not compile
+pike -M . pike-resolve.pike --json Foo.pike      # machine-readable
+pike pike-resolve.pike Standards.JSON            # a module, not a file
 ```
 
 Installed modules are marked `[installed module]` and **not** descended into — otherwise
@@ -208,6 +208,6 @@ Never "fix" a Pike project to a single project-wide case style.
 
 ## Reference
 
-- `tools/pike-resolve.pike` — trace inherit/import/include chains to source files
-- `tools/pike-check.pike` — compile-check a file or a whole tree, Roxen-aware
+- `pike-resolve.pike` — trace inherit/import/include chains to source files
+- To check that code *compiles*, see `pike-check.pike` in the `pike-build-and-docs` skill
 - `references/resolution.md` — resolution rules with verified worked examples
