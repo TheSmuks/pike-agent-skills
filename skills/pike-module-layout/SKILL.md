@@ -123,6 +123,12 @@ Leaf.pike
       inherit Lib.Mixin -> Lib.pmod/Mixin.pike
 ```
 
+
+> **If `pike-resolve.pike` is not next to this file**, the skill was installed by a method
+> that copies only `SKILL.md` — `copilot skill add <url>` does this. Register the
+> skills directory instead (`copilot skill add <dir>`), or use the repo's
+> `install.sh`. Everything else in this skill works without the tool.
+
 Two passes, because they see different things:
 
 | Pass | How | Sees |

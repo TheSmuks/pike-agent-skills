@@ -186,6 +186,12 @@ pike pike-check.pike src/                    # a whole tree, recursively
 pike pike-check.pike --roxen=/opt/roxen m.pike
 ```
 
+
+> **If `pike-check.pike` is not next to this file**, the skill was installed by a method
+> that copies only `SKILL.md` — `copilot skill add <url>` does this. Register the
+> skills directory instead (`copilot skill add <dir>`), or use the repo's
+> `install.sh`. Everything else in this skill works without the tool.
+
 **Root causes first.** An undefined type in a signature makes Pike lose the return type
 too, so one bad identifier cascades into `Illegal program identifier`, `Must return a
 value for a non-void function` and more. Only the root is shown by default:
