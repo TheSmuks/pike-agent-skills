@@ -404,6 +404,15 @@ if [ -f "$INSTDIR/dest/pike-build-and-docs/pike-check.pike" ]; then
 fi
 echo
 
+# INSTALL.md is agent-facing; keep it honest about the URL trap.
+HERE_ROOT=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$HERE_ROOT/INSTALL.md" ] && grep -q "only \`SKILL.md\`" "$HERE_ROOT/INSTALL.md"; then
+  ok "INSTALL.md warns that URL installs drop bundled tools"
+else
+  bad "INSTALL.md warns about the URL trap"
+fi
+echo
+
 # ------------------------------------------------------------------ repo health
 echo "repo consistency"
 

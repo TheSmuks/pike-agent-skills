@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-67%2F67_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-68%2F68_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -14,6 +14,13 @@ framework. Every command was executed against Pike 8.0.1116 before being written
 and `./verify.sh` re-runs all of them.
 
 ## Install
+
+**Working with an agent?** Point it at [`INSTALL.md`](INSTALL.md) — *"read INSTALL.md and
+install these skills"*. It detects the host, picks the right method, and verifies
+discovery afterwards, which matters because installing and being discovered are not the
+same thing.
+
+Doing it yourself:
 
 ```bash
 ./install.sh claude        # or: codex, copilot, agents-user, ...
