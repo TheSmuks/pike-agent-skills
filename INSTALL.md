@@ -58,11 +58,10 @@ git commit, so it catches drift from uncommitted edits too.
 
 ### Do not install from a URL
 
-`copilot skill add <url>` materialises **only `SKILL.md`**. Two of these skills ship a tool
-next to their `SKILL.md`:
+`copilot skill add <url>` materialises **only `SKILL.md`**. One of these skills ships a
+tool next to its `SKILL.md`:
 
 ```
-skills/pike-module-layout/pike-resolve.pike
 skills/pike-build-and-docs/pike-check.pike
 ```
 
@@ -86,7 +85,7 @@ Then confirm a bundled tool survived the install, since that is the part most li
 missing:
 
 ```sh
-find . "$HOME" -path "*pike-module-layout/pike-resolve.pike" 2>/dev/null | head -1
+find . "$HOME" -path "*pike-build-and-docs/pike-check.pike" 2>/dev/null | head -1
 ```
 
 If that finds nothing, the skills are installed but degraded — the instructions will

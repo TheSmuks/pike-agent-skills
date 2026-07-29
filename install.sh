@@ -18,7 +18,7 @@ TARGET=""
 # Tools that ship beside a SKILL.md. Losing these is the failure mode worth
 # guarding: the skill still installs, but then instructs the agent to run a file
 # that is not there.
-BUNDLED="pike-module-layout/pike-resolve.pike pike-build-and-docs/pike-check.pike"
+BUNDLED="pike-build-and-docs/pike-check.pike"
 
 usage() {
   cat <<'EOF'

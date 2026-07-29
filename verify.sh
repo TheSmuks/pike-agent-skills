@@ -128,60 +128,52 @@ else
 fi
 echo
 
-# ------------------------------------------------------------------ resolver tool
-echo "tools/pike-resolve"
+# ------------------------------------------------- documented name resolution
+# The skill now teaches one-liners instead of shipping a resolver. Each command
+# it documents is checked here against the real Pike, because a documented
+# command that does not run is the failure mode that started all this.
+echo "name resolution"
 
-R="$HERE_SKILLS/pike-module-layout/pike-resolve.pike"
-mkdir -p "$TMP/res/Lib.pmod"
-echo 'int base_v() { return 1; }'                       > "$TMP/res/Base.pike"
-echo 'int mixin_v() { return 2; }'                      > "$TMP/res/Lib.pmod/Mixin.pike"
-printf 'inherit "Base";\ninherit Lib.Mixin;\n'          > "$TMP/res/Middle.pike"
-printf 'inherit "Middle";\nint leaf_v(){return 4;}\n'   > "$TMP/res/Leaf.pike"
-printf 'import Standards.JSON;\ninherit "Middle";\n'    > "$TMP/res/Imp.pike"
+mkdir -p "$TMP/res/A.pmod"
+echo 'int x(){ return 42; }'                  > "$TMP/res/A.pmod/B.pike"
+printf 'import A;\nint f(){ return B()->x(); }\n' > "$TMP/res/User.pike"
 
-RES=$(cd "$TMP/res" && pike -M . "$R" Leaf.pike 2>&1)
-case "$RES" in *"runtime inherit chain (authoritative)"*)
-  ok "resolver reports the runtime chain" ;; *)
-  bad "resolver reports the runtime chain" "$(printf '%s' "$RES" | head -1)" ;; esac
-case "$RES" in *'inherit "Middle" -> Middle.pike'*)
-  ok "resolves a string inherit to its file" ;; *)
-  bad "resolves a string inherit to its file" ;; esac
-case "$RES" in *'inherit Lib.Mixin -> Lib.pmod/Mixin.pike'*)
-  ok "resolves a dotted inherit through the module path" ;; *)
-  bad "resolves a dotted inherit through the module path" ;; esac
-case "$RES" in *'inherit "Base" -> Base.pike'*)
-  ok "follows the chain transitively" ;; *)
-  bad "follows the chain transitively" ;; esac
-
-IMP=$(cd "$TMP/res" && pike -M . "$R" --imports Imp.pike 2>&1)
-case "$IMP" in *"import Standards.JSON"*"[installed module]"*)
-  ok "marks installed modules and does not descend into them" ;; *)
-  bad "marks installed modules" ;; esac
-
-# a genuinely unresolvable reference must be reported and exit non-zero
-printf 'inherit Nope.Missing;\n' > "$TMP/res/Bad.pike"
-if ( cd "$TMP/res" && pike -M . "$R" --static Bad.pike ) >/dev/null 2>&1; then
-  bad "unresolved reference exits non-zero" "exited 0"
+FILE_DEF=$(pike -e 'write("%O\n", Program.defined(Stdio.File));' 2>&1)
+BUF_DEF=$(pike -e 'write("%O\n", Program.defined(Stdio.Buffer));' 2>&1)
+case "$FILE_DEF" in *"module.pmod:"*)
+  ok "Program.defined() gives file:line for a class in a module" ;; *)
+  bad "Program.defined() gives file:line for a class in a module" "$FILE_DEF" ;; esac
+if [ "$FILE_DEF" != "$BUF_DEF" ]; then
+  ok "two classes in one module resolve differently"
 else
-  ok "unresolved reference exits non-zero"
+  bad "two classes in one module resolve differently" "both: $FILE_DEF"
 fi
 
-printf '#include "hdr.h"\ninherit "Base";\n' > "$TMP/res/Inc.pike"
-echo 'int z;' > "$TMP/res/hdr.h"
-INC=$(cd "$TMP/res" && pike -M . "$R" --static Inc.pike 2>&1)
-case "$INC" in *'include "hdr.h" -> hdr.h'*)
-  ok "traces #include to its file" ;; *)
-  bad "traces #include to its file" ;; esac
+BARE=$(cd "$TMP/res" && pike -M . -e 'write("%O\n", undefinedp(master()->resolv("B")));' 2>&1)
+case "$BARE" in *1*)
+  ok "a bare imported name does NOT resolve (the documented trap)" ;; *)
+  bad "a bare imported name does NOT resolve (the documented trap)" "$BARE" ;; esac
 
-if ( cd "$TMP/res" && pike -M . "$R" --json Leaf.pike ) 2>/dev/null \
-     | pike -e 'string s=Stdio.stdin->read(); Standards.JSON.decode(s); write("ok\n");' \
-     2>/dev/null | grep -q ok; then
-  ok "--json emits valid JSON"
-else
-  bad "--json emits valid JSON"
-fi
+QUAL=$(cd "$TMP/res" && pike -M . -e 'write("%O\n", Program.defined(master()->resolv("A.B")));' 2>&1)
+case "$QUAL" in *"A.pmod/B.pike"*)
+  ok "qualifying with the import scope resolves it" ;; *)
+  bad "qualifying with the import scope resolves it" "$QUAL" ;; esac
+
+DIRMOD=$(cd "$TMP/res" && pike -M . -e 'write("%O\n", Program.defined(object_program(master()->resolv("A"))));' 2>&1)
+case "$DIRMOD" in *master.pike*)
+  ok "a directory module reports master.pike (documented as a lie)" ;; *)
+  bad "a directory module reports master.pike (documented as a lie)" "$DIRMOD" ;; esac
+
+IDX=$(cd "$TMP/res" && pike -M . -e 'write("%O\n", indices(master()->resolv("A")));' 2>&1)
+case "$IDX" in *'"B"'*)
+  ok "indices() lists what an imported scope provides" ;; *)
+  bad "indices() lists what an imported scope provides" "$IDX" ;; esac
+
+PATHS=$(pike --show-paths 2>&1)
+case "$PATHS" in *"Module path"*)
+  ok "pike --show-paths reports the search roots" ;; *)
+  bad "pike --show-paths reports the search roots" ;; esac
 echo
-
 # ------------------------------------------------------------------- check tool
 echo "tools/pike-check"
 
@@ -390,7 +382,7 @@ INSTDIR="$TMP/inst"
 INSTALLER=$(cd "$(dirname "$0")" && pwd)/install.sh
 mkdir -p "$INSTDIR"
 "$INSTALLER" "$INSTDIR/dest" >/dev/null 2>&1
-for t in pike-module-layout/pike-resolve.pike pike-build-and-docs/pike-check.pike; do
+for t in pike-build-and-docs/pike-check.pike; do
   [ -f "$INSTDIR/dest/$t" ] && ok "install delivers $t" || bad "install delivers $t"
 done
 
@@ -445,11 +437,8 @@ if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instruction
   fi
 fi
 
-# The tools must live inside a skill directory. `gh skill install` copies the
+# The tool must live inside a skill directory. `gh skill install` copies the
 # skill folder only, so a sibling tools/ would never reach the user.
-[ -f "$HERE_SKILLS/pike-module-layout/pike-resolve.pike" ] \
-  && ok "pike-resolve.pike ships inside its skill" \
-  || bad "pike-resolve.pike ships inside its skill"
 [ -f "$HERE_SKILLS/pike-build-and-docs/pike-check.pike" ] \
   && ok "pike-check.pike ships inside its skill" \
   || bad "pike-check.pike ships inside its skill"
