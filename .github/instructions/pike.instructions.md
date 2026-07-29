@@ -1,5 +1,5 @@
 ---
-applyTo: "**/*.pike,**/*.pmod,**/*.cmod,**/testsuite,**/testsuite.in"
+applyTo: "**/*.pike,**/*.pmod,**/*.cmod,**/*.inc,**/*.rjs,**/testsuite,**/testsuite.in"
 ---
 
 # Pike Working Rules
