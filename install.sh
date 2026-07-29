@@ -3,6 +3,8 @@
 #
 # Usage:
 #   ./install.sh                  # auto-detect targets in the current project
+#   ./install.sh copilot-user     # ~/.copilot/skills (all projects)
+#   ./install.sh agents-user      # ~/.agents/skills  (all projects)
 #   ./install.sh claude           # ~/.claude/skills  (all projects)
 #   ./install.sh claude-project   # ./.claude/skills
 #   ./install.sh copilot          # ./.github/skills + ./.github/instructions
@@ -46,6 +48,12 @@ case "$TARGET" in
   claude)
     copy_skills "$HOME/.claude/skills"
     ;;
+  copilot-user)
+    copy_skills "$HOME/.copilot/skills"
+    ;;
+  agents-user)
+    copy_skills "$HOME/.agents/skills"
+    ;;
   claude-project)
     copy_skills "./.claude/skills"
     copy_agents_md "."
@@ -65,6 +73,7 @@ case "$TARGET" in
     echo "Auto-detecting agent directories in $(pwd)"
     found=0
     [ -d "./.claude" ]  && { copy_skills "./.claude/skills";  found=1; }
+    [ -d "./.copilot" ] && { copy_skills "./.copilot/skills"; found=1; }
     [ -d "./.github" ]  && { copy_skills "./.github/skills";  copy_copilot_instructions "."; found=1; }
     [ -d "./.agents" ]  && { copy_skills "./.agents/skills";  found=1; }
     copy_agents_md "."

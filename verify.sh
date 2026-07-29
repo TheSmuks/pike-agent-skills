@@ -23,7 +23,7 @@ check() { # check <label> <expected-substring> <command...>
   esac
 }
 
-HERE_TOOLS=$(cd "$(dirname "$0")/tools" && pwd)
+HERE_SKILLS=$(cd "$(dirname "$0")/skills" && pwd)
 command -v pike >/dev/null 2>&1 || { echo "pike not found in PATH"; exit 1; }
 echo "Pike: $(pike --version 2>&1 | head -1)"
 echo
@@ -131,7 +131,7 @@ echo
 # ------------------------------------------------------------------ resolver tool
 echo "tools/pike-resolve"
 
-R="$HERE_TOOLS/pike-resolve.pike"
+R="$HERE_SKILLS/pike-module-layout/pike-resolve.pike"
 mkdir -p "$TMP/res/Lib.pmod"
 echo 'int base_v() { return 1; }'                       > "$TMP/res/Base.pike"
 echo 'int mixin_v() { return 2; }'                      > "$TMP/res/Lib.pmod/Mixin.pike"
@@ -185,7 +185,7 @@ echo
 # ------------------------------------------------------------------- check tool
 echo "tools/pike-check"
 
-CHK="$HERE_TOOLS/pike-check.pike"
+CHK="$HERE_SKILLS/pike-build-and-docs/pike-check.pike"
 printf 'int main(){ write("hi\\n"); return 0; }\n'      > "$TMP/res/Good.pike"
 printf 'int main(){ nope_not_here(); return 0; }\n'      > "$TMP/res/Bad.pike"
 printf 'int main(){ write(Roxen.html_encode_string("x")); return 0; }\n' > "$TMP/res/Rox.pike"
@@ -392,6 +392,20 @@ if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instruction
   else
     bad "AGENTS.md and .github/instructions/pike.instructions.md have drifted"
   fi
+fi
+
+# The tools must live inside a skill directory. `gh skill install` copies the
+# skill folder only, so a sibling tools/ would never reach the user.
+[ -f "$HERE_SKILLS/pike-module-layout/pike-resolve.pike" ] \
+  && ok "pike-resolve.pike ships inside its skill" \
+  || bad "pike-resolve.pike ships inside its skill"
+[ -f "$HERE_SKILLS/pike-build-and-docs/pike-check.pike" ] \
+  && ok "pike-check.pike ships inside its skill" \
+  || bad "pike-check.pike ships inside its skill"
+if grep -rqE '(^|[^-a-z])tools/pike-' "$HERE_SKILLS"/*/SKILL.md 2>/dev/null; then
+  bad "no stale tools/ paths in skills" "a SKILL.md still points at tools/"
+else
+  ok "no stale tools/ paths in skills"
 fi
 
 for s in pike-module-layout pike-testing pike-runtime-discovery pike-build-and-docs; do
