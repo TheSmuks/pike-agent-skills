@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Pike 8.0](https://img.shields.io/badge/pike-8.0.1116-informational.svg)](https://pike.lysator.liu.se/)
-[![Verified](https://img.shields.io/badge/checks-68%2F68_passing-brightgreen.svg)](verify.sh)
+[![Verified](https://img.shields.io/badge/checks-72%2F72_passing-brightgreen.svg)](verify.sh)
 [![Agents](https://img.shields.io/badge/agents-Copilot_%7C_Codex_%7C_Claude-8957e5.svg)](#install)
 
 Agent skills for developing in [Pike](https://pike.lysator.liu.se/) — module layout,
@@ -23,8 +23,16 @@ same thing.
 Doing it yourself:
 
 ```bash
-./install.sh claude        # or: codex, copilot, agents-user, ...
+./install.sh --help          # targets and options
+./install.sh --dry-run       # see what would happen
+./install.sh claude          # or: codex, copilot, agents-user, ...
+./install.sh --list          # where is it installed, and from which commit
+./install.sh --uninstall     # remove it again
 ```
+
+The installer verifies after copying — it fails loudly if the bundled tools did not
+arrive, rather than leaving skills that reference files you do not have — and records
+provenance, so `--list` reports which commit an install came from.
 
 Verified end to end — after installing, all three agents on hand list every skill and the
 bundled tools run from where they land:

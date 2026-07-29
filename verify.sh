@@ -393,6 +393,25 @@ mkdir -p "$INSTDIR"
 for t in pike-module-layout/pike-resolve.pike pike-build-and-docs/pike-check.pike; do
   [ -f "$INSTDIR/dest/$t" ] && ok "install delivers $t" || bad "install delivers $t"
 done
+
+# --help must not be treated as a target (it once was, and printed "Unknown target")
+if "$INSTALLER" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
+"$INSTALLER" --nope >/dev/null 2>&1 && bad "unknown option exits non-zero" \
+                                    || ok "unknown option exits non-zero"
+
+# --dry-run must change nothing
+"$INSTALLER" --dry-run "$INSTDIR/dry" >/dev/null 2>&1
+[ -d "$INSTDIR/dry" ] && bad "--dry-run writes nothing" "it created the directory" \
+                      || ok "--dry-run writes nothing"
+
+# a provenance stamp, so a later reader can tell where an install came from
+[ -f "$INSTDIR/dest/.pike-agent-skills" ] \
+  && ok "install records provenance" || bad "install records provenance"
+
+# --uninstall removes what it installed
+"$INSTALLER" --uninstall "$INSTDIR/dest" >/dev/null 2>&1
+[ -d "$INSTDIR/dest/pike-testing" ] && bad "--uninstall removes skills" \
+                                    || ok "--uninstall removes skills"
 # and they must actually run from there, not just exist
 if [ -f "$INSTDIR/dest/pike-build-and-docs/pike-check.pike" ]; then
   printf 'int main(){ return 0; }\n' > "$INSTDIR/ok.pike"
