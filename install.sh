@@ -84,6 +84,10 @@ copy_skills() {
       run ln -s "$SKILLS/$s" "$dest/$s"
     done
   else
+    # Clear each skill directory first. A plain merge-copy leaves behind files
+    # that no longer exist in the source — upgrading across the removal of a
+    # bundled tool left the old executable sitting next to the new SKILL.md.
+    for s in $SKILL_NAMES; do run rm -rf "$dest/$s"; done
     run cp -r "$SKILLS/." "$dest/"
   fi
   # A provenance stamp, so a later reader can tell where these came from and
@@ -115,6 +119,22 @@ copy_agents_md() {
   else
     run cp "$SRC/AGENTS.md" "$dest/AGENTS.md"
     say "  rules     -> $dest/AGENTS.md"
+  fi
+}
+
+# Claude Code reads CLAUDE.md and ignores AGENTS.md — verified by planting a
+# marker in each and asking: only the CLAUDE.md marker came back, with both
+# files present. Writing AGENTS.md for a Claude target is dead weight.
+copy_claude_md() {
+  dest=$1
+  if [ -f "$dest/CLAUDE.md" ] && grep -q "Pike Working Rules" "$dest/CLAUDE.md" 2>/dev/null; then
+    say "  rules     -> $dest/CLAUDE.md (already present)"
+  elif [ -f "$dest/CLAUDE.md" ]; then
+    run sh -c "printf '\n' >> '$dest/CLAUDE.md'; cat '$SRC/AGENTS.md' >> '$dest/CLAUDE.md'"
+    say "  rules     -> $dest/CLAUDE.md (appended)"
+  else
+    run cp "$SRC/AGENTS.md" "$dest/CLAUDE.md"
+    say "  rules     -> $dest/CLAUDE.md"
   fi
 }
 
@@ -255,21 +275,29 @@ case "${TARGET:-auto}" in
   auto)
     say "Auto-detecting agent locations"
     found=0
+    wrote_rules=0
     for pair in ".claude:./.claude/skills" ".copilot:./.copilot/skills" \
                 ".agents:./.agents/skills"; do
       d=${pair%%:*}; dest=${pair#*:}
-      [ -d "./$d" ] && { copy_skills "$dest"; verify "$dest" || rc=1; found=1; }
+      [ -d "./$d" ] || continue
+      copy_skills "$dest"; verify "$dest" || rc=1; found=1
+      case "$d" in
+        .claude) copy_claude_md "."; wrote_rules=1 ;;
+        .agents) copy_agents_md "."; wrote_rules=1 ;;
+      esac
     done
     if [ -d "./.github" ]; then
       copy_skills "./.github/skills"; verify "./.github/skills" || rc=1
-      copy_copilot_instructions "."; found=1
+      copy_copilot_instructions "."; found=1; wrote_rules=1
     fi
     for pair in "$HOME/.claude:$HOME/.claude/skills" "$HOME/.copilot:$HOME/.copilot/skills" \
                 "$HOME/.agents:$HOME/.agents/skills"; do
       d=${pair%%:*}; dest=${pair#*:}
       [ -d "$d" ] && { copy_skills "$dest"; verify "$dest" || rc=1; found=1; }
     done
-    copy_agents_md "."
+    # Only if nothing platform-specific was written, so the same body is never
+    # loaded twice: Copilot reads AGENTS.md *and* its own instructions file.
+    [ "$wrote_rules" -eq 0 ] && copy_agents_md "."
     [ "$found" -eq 0 ] && say "  (no agent directories found — installed AGENTS.md only)"
     ;;
   *)
@@ -278,8 +306,9 @@ case "${TARGET:-auto}" in
     copy_skills "$dest"
     verify "$dest" || rc=1
     case "$TARGET" in
-      claude-project|codex) copy_agents_md "." ;;
-      copilot)              copy_copilot_instructions "." ;;
+      claude-project) copy_claude_md "." ;;
+      codex)          copy_agents_md "." ;;
+      copilot)        copy_copilot_instructions "." ;;
     esac
     ;;
 esac

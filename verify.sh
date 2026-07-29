@@ -338,6 +338,15 @@ echo
 echo "repo consistency"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# The installer must copy an instructions file that actually exists; the roxen
+# repo shipped one naming the wrong file, so Copilot users silently got none.
+INSTR_SRC=$(sed -n 's|.*run cp "$SRC/\.github/instructions/\([a-z]*\.instructions\.md\)".*|\1|p' "$HERE/install.sh" | head -1)
+if [ -n "$INSTR_SRC" ] && [ -f "$HERE/.github/instructions/$INSTR_SRC" ]; then
+  ok "installer copies an instructions file that exists ($INSTR_SRC)"
+else
+  bad "installer copies an instructions file that exists" "referenced: ${INSTR_SRC:-none}"
+fi
+
 if [ -f "$HERE/AGENTS.md" ] && [ -f "$HERE/.github/instructions/pike.instructions.md" ]; then
   if sed '1,4d' "$HERE/.github/instructions/pike.instructions.md" | \
        diff -q - "$HERE/AGENTS.md" >/dev/null 2>&1; then

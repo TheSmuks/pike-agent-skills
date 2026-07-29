@@ -63,6 +63,50 @@ git commit, so it catches drift from uncommitted edits too.
 skill text — so a URL install is degraded rather than broken. Use a directory or
 `install.sh` and get the reference material too.
 
+## 2b. Upgrading an existing install
+
+Check what is already there before installing anything. `--list` reports each location
+and whether its contents still match this checkout:
+
+```sh
+<repo>/install.sh --list
+```
+
+- `status: current` — nothing to do.
+- `status: live (symlink ...)` — nothing to do, ever; it tracks the checkout.
+- `status: STALE` — re-run `install.sh <target>`. It clears each skill directory before
+  copying, so files that no longer exist upstream are removed rather than left behind.
+- `status: unknown` — installed before drift tracking; re-install to get a fingerprint.
+
+**A stale install is worse than a missing one.** The skill text is instructions; if it has
+drifted from the tools and commands it describes, the agent follows the old text
+confidently. One observed failure: a copy installed before a fix reported the fixed
+behaviour as broken, and said so with full conviction.
+
+Use `--link` on a checkout you intend to edit, and the problem cannot recur:
+
+```sh
+<repo>/install.sh --link claude
+```
+
+### Upgrading across 2.0.0
+
+Releases before 2.0.0 shipped two executables inside the skills,
+`pike-module-layout/pike-resolve.pike` and `pike-build-and-docs/pike-check.pike`. Both are
+gone: measurement across 24 agent runs on three platforms showed agents reached for an
+inline `pike -e` one-liner instead, and the skills now teach those commands directly.
+
+If you are carrying instructions that call either script, discard them — the replacements
+are in the skill text under *Resolving a Name to Its Source* and *Checking That Code
+Compiles*. After upgrading, no `.pike` file should remain under any installed skill:
+
+```sh
+find <dest> -name '*.pike'      # expect no output
+```
+
+Any left over means the install predates 2.0.0 and was merged rather than replaced.
+Re-run `install.sh`, or `--uninstall` first.
+
 ## 3. Verify — do not skip this
 
 Installing is not the same as being discovered. Check that the host actually sees them:
