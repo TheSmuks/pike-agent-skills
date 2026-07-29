@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "pike-agent-skills",
+  "version": "2.0.0",
+  "description": "Workflow skills for Pike: module layout and name resolution, runtime discovery, testing with Tools.Testsuite, and build/autodoc tooling.",
+  "author": {
+    "name": "TheSmuks",
+    "email": "therealsmuks@gmail.com"
+  },
+  "homepage": "https://github.com/TheSmuks/pike-agent-skills",
+  "license": "MIT",
+  "skills": [
+    "./skills/pike-module-layout",
+    "./skills/pike-runtime-discovery",
+    "./skills/pike-testing",
+    "./skills/pike-build-and-docs"
+  ]
+}
