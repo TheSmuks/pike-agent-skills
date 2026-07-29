@@ -19,8 +19,32 @@ and `./verify.sh` re-runs all of them.
 ./install.sh claude        # or: codex, copilot, agents-user, ...
 ```
 
-Verified end to end: after installing, **Claude Code 2.1.220** and **Codex 0.143.0** both
-list all four skills, and the bundled tools run from where they land.
+Verified end to end — after installing, all three agents on hand list every skill and the
+bundled tools run from where they land:
+
+| Agent | Verified |
+|-------|----------|
+| Claude Code 2.1.220 | lists all 4 skills |
+| Codex 0.143.0 | lists all 4 skills |
+| GitHub Copilot CLI 1.0.75 | lists all 4 skills |
+
+### Copilot CLI
+
+`copilot skill add` takes a directory, a file, or a URL — **and the difference matters
+here**, because these skills bundle tools next to their `SKILL.md`:
+
+```bash
+copilot skill add /path/to/pike-agent-skills/skills     # registers the directory
+```
+
+| Source | Bundled tools |
+|--------|---------------|
+| `copilot skill add <directory>` | **included** — the directory is registered in place |
+| `copilot skill add <url>` | **lost** — only `SKILL.md` is materialised |
+
+Verified: a URL install produced `~/.copilot/skills/pike-module-layout/SKILL.md` and
+nothing else, so the skill would tell the agent to run a `pike-resolve.pike` that is not
+there. Use the directory form, or `install.sh`.
 
 If your `gh` is recent enough to have the `skill` command, that is GitHub's own installer
 and handles target directories, version pinning and provenance for you:
