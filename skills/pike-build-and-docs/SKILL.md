@@ -209,16 +209,32 @@ Feed it **files only**. A `.pmod` *directory* handed to `compile_file()` throws
 directory module as a broken file — on a small tree that turns 1 real error into 4:
 
 ```bash
-fail=0
+fail=0; n=0
 for f in $(find . -type f \( -name '*.pike' -o -name '*.pmod' \) | sort); do
+  n=$((n + 1))
   pike -M . -e "compile_file(\"$f\");" >/dev/null 2>&1 \
     || { echo "FAIL $f"; pike -M . -e "compile_file(\"$f\");" 2>&1 | head -2; fail=1; }
 done
+[ "$n" -gt 0 ] || { echo "checked nothing — the find matched no files"; exit 1; }
+echo "$n files checked"
 exit $fail
 ```
 
 `-type f` is the whole fix: `.pmod` is used for both files and directories, so a bare
 `-name '*.pmod'` matches the directories too.
+
+**Assert the file count, not just the failure count.** A sweep that matches nothing
+reports success — every file passed, because there were none. The usual way to get there
+is pruning hidden directories:
+
+```bash
+find . -name '.*' -prune -o -type f -name '*.pike' -print   # 0 files — `.` matches `.*`
+find . -mindepth 1 -name '.*' -prune -o -type f -name '*.pike' -print   # correct
+```
+
+`.` itself matches `.*`, so the prune discards the whole tree and the check passes by
+finding nothing. This is the same silent-green failure as pointing `test_pike` at an
+unexpanded `testsuite.in`: exit 0, and no work done.
 
 ### Roxen code will not compile this way
 
