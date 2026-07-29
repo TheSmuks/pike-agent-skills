@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "smuks-pike",
+  "description": "Agent skills for the Pike programming language, verified against a real Pike install.",
+  "owner": {
+    "name": "TheSmuks",
+    "email": "therealsmuks@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "pike-agent-skills",
+      "source": "./",
+      "description": "Workflow skills for Pike: module layout and name resolution, runtime discovery, testing, and build/autodoc tooling."
+    }
+  ]
+}

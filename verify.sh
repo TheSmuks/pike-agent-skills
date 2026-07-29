@@ -13,6 +13,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [ $# -gt 1 ] && printf '       %s\n' "$2"; }
+skip() { printf '  --   %s (skipped)\n' "$1"; }
 
 check() { # check <label> <expected-substring> <command...>
   label=$1; want=$2; shift 2
@@ -338,6 +339,32 @@ echo
 echo "repo consistency"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# Plugin packaging. Claude Code and Codex both read .claude-plugin/, so the two
+# manifests are the single source of truth for both — validated with the
+# vendor's own validator rather than by inspection.
+if command -v claude >/dev/null 2>&1; then
+  PV=$(claude plugin validate "$HERE" --strict 2>&1)
+  case "$PV" in *"Validation passed"*)
+    ok "plugin.json validates (strict)" ;; *)
+    bad "plugin.json validates (strict)" "$(printf '%s' "$PV" | tail -2)" ;; esac
+  MV=$(claude plugin validate "$HERE/.claude-plugin/marketplace.json" --strict 2>&1)
+  case "$MV" in *"Validation passed"*)
+    ok "marketplace.json validates (strict)" ;; *)
+    bad "marketplace.json validates (strict)" "$(printf '%s' "$MV" | tail -2)" ;; esac
+else
+  skip "plugin manifests (claude CLI not installed)"
+fi
+
+# Every skill directory must be listed in plugin.json, or it silently ships
+# without that skill.
+for s in $(cd "$HERE/skills" && ls -d */ | tr -d /); do
+  if grep -q "\"./skills/$s\"" "$HERE/.claude-plugin/plugin.json"; then
+    ok "plugin.json lists $s"
+  else
+    bad "plugin.json lists $s"
+  fi
+done
+
 # The installer must copy an instructions file that actually exists; the roxen
 # repo shipped one naming the wrong file, so Copilot users silently got none.
 INSTR_SRC=$(sed -n 's|.*run cp "$SRC/\.github/instructions/\([a-z]*\.instructions\.md\)".*|\1|p' "$HERE/install.sh" | head -1)

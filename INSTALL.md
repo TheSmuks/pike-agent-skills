@@ -63,6 +63,42 @@ git commit, so it catches drift from uncommitted edits too.
 skill text — so a URL install is degraded rather than broken. Use a directory or
 `install.sh` and get the reference material too.
 
+## 2a. Preferred: install as a plugin
+
+Claude Code and Codex both read `.claude-plugin/`, so the manifests in this repo serve
+both. This is the vendors' own mechanism: versioned, with `update` and `uninstall`, and it
+never goes stale the way a copied directory does.
+
+```sh
+# Claude Code
+claude plugin marketplace add TheSmuks/pike-agent-skills
+claude plugin install pike-agent-skills@smuks-pike
+
+# Codex — same manifests
+codex plugin marketplace add https://github.com/TheSmuks/pike-agent-skills
+codex plugin add pike-agent-skills@smuks-pike
+```
+
+GitHub Copilot has no plugin format; register the directory in place instead, which is
+equally immune to drift:
+
+```sh
+copilot skill add <repo>/skills            # personal
+copilot skill add --project <repo>/skills  # this project only
+```
+
+> **Do not run a plugin install and a directory install at the same time.** Both are
+> discovered, so every skill loads twice and you pay for it on every request. Verified:
+> with the plugin installed alongside `~/.claude/skills`, each skill appeared twice;
+> removing one source returned it to once. Uninstall the directory copy first:
+>
+> ```sh
+> <repo>/install.sh --uninstall claude
+> ```
+
+`claude plugin details pike-agent-skills@smuks-pike` reports the projected token cost per
+skill, which is the honest way to decide what to keep enabled.
+
 ## 2b. Upgrading an existing install
 
 Check what is already there before installing anything. `--list` reports each location
