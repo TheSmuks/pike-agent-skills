@@ -215,6 +215,16 @@ case "$DIRERR" in *"Bad argument 1 to cpp"*)
   ok "a .pmod directory breaks compile_file (why -type f matters)" ;; *)
   bad "a .pmod directory breaks compile_file (why -type f matters)" "$DIRERR" ;; esac
 
+# A prune that matches "." discards the whole tree, so the sweep passes by
+# checking nothing — the same silent green as an unexpanded testsuite.in.
+PRUNED=$( cd "$TMP/cc" && find . -name '.*' -prune -o -type f -name '*.pike' -print | wc -l )
+GUARDED=$( cd "$TMP/cc" && find . -mindepth 1 -name '.*' -prune -o -type f -name '*.pike' -print | wc -l )
+if [ "$PRUNED" -eq 0 ] && [ "$GUARDED" -gt 0 ]; then
+  ok "-name '.*' -prune matches '.' and finds nothing (needs -mindepth 1)"
+else
+  bad "-name '.*' -prune matches '.' and finds nothing (needs -mindepth 1)" "$PRUNED / $GUARDED"
+fi
+
 NFILES=$( cd "$TMP/cc" && find . -type f \( -name '*.pike' -o -name '*.pmod' \) | wc -l )
 NALL=$( cd "$TMP/cc" && find . \( -name '*.pike' -o -name '*.pmod' \) | wc -l )
 if [ "$NFILES" -lt "$NALL" ]; then
